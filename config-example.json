@@ -1,6 +1,6 @@
 {
   "debug": {
-    "enabled": true,
+    "enabled": false,
     "verify_suspension": false,
     "watch_nids": []
   },
