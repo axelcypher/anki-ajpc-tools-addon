@@ -194,7 +194,7 @@ Note type: **JP Vocab**
 Result: each card goes to the exact deck you want without manual dragging.
 
 Credit: [https://ankiweb.net/shared/info/1310787152](https://ankiweb.net/shared/info/1310787152) - The Card Sorter feature is based on this add-on.
-It’s a simplified version of the original that didn’t work properly because of deprecated code and edge-case issues.
+It’s a rework of the original that didn’t work properly because of deprecated code and edge-case issues.
 
 ---
 
