@@ -48,14 +48,14 @@ jobs:
       - name: Build .ankiaddon
         if: steps.tagcheck.outputs.exists != 'true'
         env:
-          ADDON_PACKAGE: ajpc_tools_addon
+          ADDON_PACKAGE: ajpc_tools
           ADDON_NAME: AJpC Tools - Card Gate / JLPT Tagger / Card Sorter
           VERSION: ${{ steps.ver.outputs.version }}
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           set -euo pipefail
           rm -rf dist build
-          mkdir -p "build/$ADDON_PACKAGE"
+          mkdir -p "build"
 
           rsync -a \
             --exclude ".git" \
@@ -65,11 +65,12 @@ jobs:
             --exclude "__pycache__" \
             --exclude "meta.json" \
             --exclude "README.md" \
+            --exclude "config-example.json" \
             --exclude "*.ankiaddon" \
-            ./ "build/$ADDON_PACKAGE/"
+            ./ "build/"
 
-          if [ -f "build/$ADDON_PACKAGE/config-example.json" ] && [ ! -f "build/$ADDON_PACKAGE/config.json" ]; then
-            cp "build/$ADDON_PACKAGE/config-example.json" "build/$ADDON_PACKAGE/config.json"
+          if [ -f "build/config-example.json" ] && [ ! -f "build/config.json" ]; then
+            cp "build/config-example.json" "build/config.json"
           fi
 
           cat > build/manifest.json <<EOF
