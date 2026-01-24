@@ -34,16 +34,19 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Stop if tag already exists
+      - name: Check if tag already exists
+        id: tagcheck
         run: |
           set -euo pipefail
           TAG="${{ steps.ver.outputs.tag }}"
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            echo "Tag $TAG exists -> nothing to do."
-            exit 0
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build .ankiaddon
+        if: steps.tagcheck.outputs.exists != 'true'
         env:
           ADDON_PACKAGE: ajpc_tools_addon
           ADDON_NAME: AJpC Tools - Card Gate / JLPT Tagger / Card Sorter
@@ -77,6 +80,7 @@ jobs:
           (cd build && zip -r "../dist/${ADDON_PACKAGE}-${TAG}.ankiaddon" .)
 
       - name: Create tag + GitHub Release + upload asset
+        if: steps.tagcheck.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
