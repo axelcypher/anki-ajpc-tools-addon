@@ -1,0 +1,67 @@
+{
+  "debug": {
+    "enabled": true,
+    "verify_suspension": false,
+    "watch_nids": []
+  },
+  "run_on_sync": true,
+  "run_on_ui": true,
+  "sticky_unlock": true,
+  "stability": {
+    "default_threshold": 14.0,
+    "aggregation": "min"
+  },
+  "family_gate": {
+    "enabled": true,
+    "family": {
+      "field": "FamilyID",
+      "separator": ";",
+      "default_prio": 0
+    },
+    "note_types": {}
+  },
+  "example_gate": {
+    "enabled": true,
+    "vocab_deck": "",
+    "example_deck": "",
+    "vocab_key_field": "Vocab",
+    "example_key_field": "Vocab",
+    "example_stage_syntax": {
+      "separator": "@",
+      "default_stage": 0
+    },
+    "example_action": {
+      "apply_to_all_cards_in_note": true
+    },
+    "key_normalization": {
+      "strip_html": true,
+      "strip_furigana_brackets": true,
+      "trim": true,
+      "unicode_nfc": true,
+      "first_token_only": true
+    }
+  },
+  "jlpt_tagger": {
+    "decks": [],
+    "note_types": [],
+    "note_type_fields": {},
+    "tag_map": {
+      "jlpt-n5": "JLPT::N5",
+      "jlpt-n4": "JLPT::N4",
+      "jlpt-n3": "JLPT::N3",
+      "jlpt-n2": "JLPT::N2",
+      "jlpt-n1": "JLPT::N1",
+      "jlpt-none": "JLPT::None",
+      "common": "common"
+    }
+  },
+  "card_sorter": {
+    "enabled": true,
+    "run_on_add_note": true,
+    "run_on_sync_start": true,
+    "run_on_sync_finish": true,
+    "exclude_decks": [],
+    "exclude_tags": [],
+    "note_types": {}
+  }
+}
