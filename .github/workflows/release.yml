@@ -68,6 +68,10 @@ jobs:
             --exclude "*.ankiaddon" \
             ./ "build/$ADDON_PACKAGE/"
 
+          if [ -f "build/$ADDON_PACKAGE/config-example.json" ] && [ ! -f "build/$ADDON_PACKAGE/config.json" ]; then
+            cp "build/$ADDON_PACKAGE/config-example.json" "build/$ADDON_PACKAGE/config.json"
+          fi
+
           cat > build/manifest.json <<EOF
           {
             "package": "${ADDON_PACKAGE}",
