@@ -41,6 +41,21 @@
       "first_token_only": true
     }
   },
+  "kanji_gate": {
+    "enabled": true,
+    "behavior": "kanji_and_components",
+    "stability_aggregation": "min",
+    "kanji_note_type": "",
+    "kanji_field": "",
+    "kanji_alt_field": "",
+    "components_field": "",
+    "kanji_radical_field": "",
+    "radical_note_type": "",
+    "radical_field": "",
+    "kanji_threshold": 14.0,
+    "component_threshold": 14.0,
+    "vocab_note_types": {}
+  },
   "jlpt_tagger": {
     "decks": [],
     "note_types": [],

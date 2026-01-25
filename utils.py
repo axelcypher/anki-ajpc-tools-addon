@@ -18,10 +18,19 @@ _LOGGED_TEMPLATE_MISS: set[tuple[str, int]] = set()
 
 _HTML_RE = re.compile(r"<.*?>", re.DOTALL)
 _FURIGANA_BR_RE = re.compile(r"\[[^\]]*\]")
+_KANJI_RE = re.compile(r"[\u2E80-\u2EFF\u2F00-\u2FDF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
 
 
 def _strip_html(s: str) -> str:
     return _HTML_RE.sub("", s)
+
+
+def strip_furigana_brackets(s: str) -> str:
+    return _FURIGANA_BR_RE.sub("", s or "")
+
+
+def extract_kanji(s: str) -> list[str]:
+    return _KANJI_RE.findall(s or "")
 
 
 def norm_text(s: str) -> str:

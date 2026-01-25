@@ -236,10 +236,46 @@ def _make_checkable_combo(items: list[str], selected: list[str]) -> tuple[QCombo
     return combo, model
 
 
+def _rebuild_checkable_model(
+    combo: QComboBox,
+    model: QStandardItemModel,
+    items: list[str],
+    selected: list[str],
+) -> None:
+    model.clear()
+    selected_set = set(selected or [])
+    for name in items:
+        item = QStandardItem(name)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setData(
+            Qt.CheckState.Checked if name in selected_set else Qt.CheckState.Unchecked,
+            Qt.ItemDataRole.CheckStateRole,
+        )
+        model.appendRow(item)
+    _sync_checkable_combo_text(combo, model)
+
+
 def _populate_deck_combo(combo: QComboBox, deck_names: list[str], current_value: str) -> None:
     combo.setEditable(False)
     combo.addItem("<none>", "")
     for name in deck_names:
+        combo.addItem(name, name)
+    cur = (current_value or "").strip()
+    if cur:
+        idx = combo.findData(cur)
+        if idx == -1:
+            combo.addItem(f"{cur} (missing)", cur)
+            idx = combo.findData(cur)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+    else:
+        combo.setCurrentIndex(0)
+
+
+def _populate_note_type_combo(combo: QComboBox, note_type_names: list[str], current_value: str) -> None:
+    combo.setEditable(False)
+    combo.addItem("<none>", "")
+    for name in note_type_names:
         combo.addItem(name, name)
     cur = (current_value or "").strip()
     if cur:
@@ -502,6 +538,268 @@ def open_settings_dialog() -> None:
     example_form.addRow("Default stage", example_default_stage_spin)
 
     tabs.addTab(example_tab, "Example Gate")
+
+    kanji_tab = QWidget()
+    kanji_layout = QVBoxLayout()
+    kanji_tab.setLayout(kanji_layout)
+    kanji_form = QFormLayout()
+    kanji_layout.addLayout(kanji_form)
+
+    kanji_enabled_cb = QCheckBox()
+    kanji_enabled_cb.setChecked(config.KANJI_GATE_ENABLED)
+    kanji_form.addRow("Enabled", kanji_enabled_cb)
+
+    behavior_combo = QComboBox()
+    behavior_combo.addItem("Kanji Only", "kanji_only")
+    behavior_combo.addItem("Kanji then Components", "kanji_then_components")
+    behavior_combo.addItem("Components then Kanji", "components_then_kanji")
+    behavior_combo.addItem("Kanji and Components", "kanji_and_components")
+    behavior_idx = behavior_combo.findData(config.KANJI_GATE_BEHAVIOR)
+    if behavior_idx < 0:
+        behavior_idx = 0
+    behavior_combo.setCurrentIndex(behavior_idx)
+    kanji_form.addRow("Behavior", behavior_combo)
+
+    kanji_agg_combo = QComboBox()
+    agg_opts = ["min", "max", "avg"]
+    kanji_agg_combo.addItems(agg_opts)
+    agg_index = (
+        agg_opts.index(config.KANJI_GATE_STABILITY_AGG)
+        if config.KANJI_GATE_STABILITY_AGG in agg_opts
+        else 0
+    )
+    kanji_agg_combo.setCurrentIndex(agg_index)
+    kanji_form.addRow("Stability aggregation", kanji_agg_combo)
+
+    kanji_note_type_names = _get_note_type_names()
+
+    kanji_note_type_combo = QComboBox()
+    _populate_note_type_combo(
+        kanji_note_type_combo, kanji_note_type_names, config.KANJI_GATE_KANJI_NOTE_TYPE
+    )
+    kanji_form.addRow("Kanji note type", kanji_note_type_combo)
+
+    kanji_field_combo = QComboBox()
+    _populate_field_combo(
+        kanji_field_combo,
+        _get_fields_for_note_type(config.KANJI_GATE_KANJI_NOTE_TYPE),
+        config.KANJI_GATE_KANJI_FIELD,
+    )
+    kanji_form.addRow("Kanji field", kanji_field_combo)
+
+    kanji_alt_field_combo = QComboBox()
+    _populate_field_combo(
+        kanji_alt_field_combo,
+        _get_fields_for_note_type(config.KANJI_GATE_KANJI_NOTE_TYPE),
+        config.KANJI_GATE_KANJI_ALT_FIELD,
+    )
+    kanji_form.addRow("Kanji alt field", kanji_alt_field_combo)
+
+    components_field_label = QLabel("Components field")
+    kanji_components_field_combo = QComboBox()
+    _populate_field_combo(
+        kanji_components_field_combo,
+        _get_fields_for_note_type(config.KANJI_GATE_KANJI_NOTE_TYPE),
+        config.KANJI_GATE_COMPONENTS_FIELD,
+    )
+    kanji_form.addRow(components_field_label, kanji_components_field_combo)
+
+    kanji_radical_field_label = QLabel("Kanji radical field")
+    kanji_radical_field_combo = QComboBox()
+    _populate_field_combo(
+        kanji_radical_field_combo,
+        _get_fields_for_note_type(config.KANJI_GATE_KANJI_NOTE_TYPE),
+        config.KANJI_GATE_KANJI_RADICAL_FIELD,
+    )
+    kanji_form.addRow(kanji_radical_field_label, kanji_radical_field_combo)
+
+    radical_note_type_label = QLabel("Radical note type")
+    radical_note_type_combo = QComboBox()
+    _populate_note_type_combo(
+        radical_note_type_combo, kanji_note_type_names, config.KANJI_GATE_RADICAL_NOTE_TYPE
+    )
+    kanji_form.addRow(radical_note_type_label, radical_note_type_combo)
+
+    radical_field_label = QLabel("Radical field")
+    radical_field_combo = QComboBox()
+    _populate_field_combo(
+        radical_field_combo,
+        _get_fields_for_note_type(config.KANJI_GATE_RADICAL_NOTE_TYPE),
+        config.KANJI_GATE_RADICAL_FIELD,
+    )
+    kanji_form.addRow(radical_field_label, radical_field_combo)
+
+    kanji_threshold_label = QLabel("Kanji threshold")
+    kanji_threshold_spin = QDoubleSpinBox()
+    kanji_threshold_spin.setDecimals(2)
+    kanji_threshold_spin.setRange(0, 100000)
+    kanji_threshold_spin.setValue(float(config.KANJI_GATE_KANJI_THRESHOLD))
+    kanji_form.addRow(kanji_threshold_label, kanji_threshold_spin)
+
+    component_threshold_label = QLabel("Component threshold")
+    component_threshold_spin = QDoubleSpinBox()
+    component_threshold_spin.setDecimals(2)
+    component_threshold_spin.setRange(0, 100000)
+    component_threshold_spin.setValue(float(config.KANJI_GATE_COMPONENT_THRESHOLD))
+    kanji_form.addRow(component_threshold_label, component_threshold_spin)
+
+    vocab_note_type_names = sorted(
+        set(_get_note_type_names() + list((config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).keys()))
+    )
+    kanji_vocab_note_type_combo, kanji_vocab_note_type_model = _make_checkable_combo(
+        vocab_note_type_names, list((config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).keys())
+    )
+    kanji_form.addRow("Vocab note types", kanji_vocab_note_type_combo)
+
+    vocab_group = QGroupBox("Vocab note type config")
+    vocab_group_layout = QVBoxLayout()
+    vocab_group.setLayout(vocab_group_layout)
+
+    vocab_scroll = QScrollArea()
+    vocab_scroll.setWidgetResizable(True)
+    vocab_container = QWidget()
+    vocab_container_layout = QVBoxLayout()
+    vocab_container.setLayout(vocab_container_layout)
+    vocab_scroll.setWidget(vocab_container)
+    vocab_group_layout.addWidget(vocab_scroll)
+    kanji_layout.addWidget(vocab_group)
+
+    kanji_vocab_state: dict[str, dict[str, Any]] = {}
+    for nt_name, nt_cfg in (config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).items():
+        if not isinstance(nt_cfg, dict):
+            continue
+        kanji_vocab_state[nt_name] = {
+            "furigana_field": str(nt_cfg.get("furigana_field", "")).strip(),
+            "base_templates": [str(x) for x in (nt_cfg.get("base_templates") or [])],
+            "kanji_templates": [str(x) for x in (nt_cfg.get("kanji_templates") or [])],
+            "base_threshold": float(
+                nt_cfg.get("base_threshold", config.STABILITY_DEFAULT_THRESHOLD)
+            ),
+        }
+
+    kanji_vocab_widgets: dict[str, dict[str, Any]] = {}
+
+    def _clear_kanji_vocab_layout() -> None:
+        while vocab_container_layout.count():
+            item = vocab_container_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+    def _capture_kanji_vocab_state() -> None:
+        for nt_name, widgets in kanji_vocab_widgets.items():
+            kanji_vocab_state[nt_name] = {
+                "furigana_field": _combo_value(widgets["furigana_combo"]),
+                "base_templates": _checked_items(widgets["base_templates_model"]),
+                "kanji_templates": _checked_items(widgets["kanji_templates_model"]),
+                "base_threshold": float(widgets["base_threshold_spin"].value()),
+            }
+
+    def _refresh_kanji_vocab_config() -> None:
+        _capture_kanji_vocab_state()
+        _clear_kanji_vocab_layout()
+        kanji_vocab_widgets.clear()
+
+        selected_types = _checked_items(kanji_vocab_note_type_model)
+        for nt_name in selected_types:
+            cfg = kanji_vocab_state.get(nt_name, {})
+            field_names = _get_fields_for_note_type(nt_name)
+
+            vocab_furigana_combo = QComboBox()
+            _populate_field_combo(
+                vocab_furigana_combo,
+                field_names,
+                cfg.get("furigana_field", ""),
+            )
+
+            template_names = sorted(
+                set(_get_template_names(nt_name))
+                | set(cfg.get("base_templates", []) or [])
+                | set(cfg.get("kanji_templates", []) or [])
+            )
+            base_templates_combo, base_templates_model = _make_checkable_combo(
+                template_names, list(cfg.get("base_templates", []) or [])
+            )
+            kanji_templates_combo, kanji_templates_model = _make_checkable_combo(
+                template_names, list(cfg.get("kanji_templates", []) or [])
+            )
+
+            base_threshold_spin = QDoubleSpinBox()
+            base_threshold_spin.setDecimals(2)
+            base_threshold_spin.setRange(0, 100000)
+            base_threshold_spin.setValue(
+                float(cfg.get("base_threshold", config.STABILITY_DEFAULT_THRESHOLD))
+            )
+
+            group = QGroupBox(nt_name)
+            group_form = QFormLayout()
+            group_form.addRow("Vocab furigana field", vocab_furigana_combo)
+            group_form.addRow("Vocab base templates (Grundform)", base_templates_combo)
+            group_form.addRow("Vocab kanjiform templates", kanji_templates_combo)
+            group_form.addRow("Base threshold", base_threshold_spin)
+            group.setLayout(group_form)
+
+            vocab_container_layout.addWidget(group)
+            kanji_vocab_widgets[nt_name] = {
+                "furigana_combo": vocab_furigana_combo,
+                "base_templates_model": base_templates_model,
+                "kanji_templates_model": kanji_templates_model,
+                "base_threshold_spin": base_threshold_spin,
+            }
+
+        vocab_container_layout.addStretch(1)
+
+    def _refresh_kanji_note_fields() -> None:
+        nt_name = _combo_value(kanji_note_type_combo)
+        cur_kanji = _combo_value(kanji_field_combo)
+        cur_alt = _combo_value(kanji_alt_field_combo)
+        cur_comps = _combo_value(kanji_components_field_combo)
+        cur_rad = _combo_value(kanji_radical_field_combo)
+        fields = _get_fields_for_note_type(nt_name)
+        kanji_field_combo.clear()
+        kanji_alt_field_combo.clear()
+        kanji_components_field_combo.clear()
+        kanji_radical_field_combo.clear()
+        _populate_field_combo(kanji_field_combo, fields, cur_kanji)
+        _populate_field_combo(kanji_alt_field_combo, fields, cur_alt)
+        _populate_field_combo(kanji_components_field_combo, fields, cur_comps)
+        _populate_field_combo(kanji_radical_field_combo, fields, cur_rad)
+
+    def _refresh_radical_fields() -> None:
+        nt_name = _combo_value(radical_note_type_combo)
+        cur_val = _combo_value(radical_field_combo)
+        radical_field_combo.clear()
+        _populate_field_combo(radical_field_combo, _get_fields_for_note_type(nt_name), cur_val)
+
+    def _set_row_visible(label: QLabel, widget: QWidget, visible: bool) -> None:
+        label.setVisible(visible)
+        widget.setVisible(visible)
+
+    def _refresh_kanji_mode_ui() -> None:
+        mode = _combo_value(behavior_combo)
+        use_components = mode in (
+            "kanji_then_components",
+            "components_then_kanji",
+            "kanji_and_components",
+        )
+        _set_row_visible(components_field_label, kanji_components_field_combo, use_components)
+        _set_row_visible(kanji_radical_field_label, kanji_radical_field_combo, use_components)
+        _set_row_visible(radical_note_type_label, radical_note_type_combo, use_components)
+        _set_row_visible(radical_field_label, radical_field_combo, use_components)
+        _set_row_visible(kanji_threshold_label, kanji_threshold_spin, mode == "kanji_then_components")
+        _set_row_visible(
+            component_threshold_label, component_threshold_spin, mode == "components_then_kanji"
+        )
+
+    kanji_note_type_combo.currentIndexChanged.connect(lambda _=None: _refresh_kanji_note_fields())
+    radical_note_type_combo.currentIndexChanged.connect(lambda _=None: _refresh_radical_fields())
+    behavior_combo.currentIndexChanged.connect(lambda _=None: _refresh_kanji_mode_ui())
+    kanji_vocab_note_type_model.itemChanged.connect(lambda _item: _refresh_kanji_vocab_config())
+
+    _refresh_kanji_vocab_config()
+    _refresh_kanji_mode_ui()
+
+    tabs.addTab(kanji_tab, "Kanji Gate")
 
     jlpt_tab = QWidget()
     jlpt_layout = QVBoxLayout()
@@ -819,7 +1117,7 @@ def open_settings_dialog() -> None:
 
     info_doc = QTextBrowser()
     doc_text = (
-        "# AJpC Add-on Documentation (Family Gate, Example Gate, JLPT Tagger, Card Sorter)\n"
+        "# AJpC Add-on Documentation (Family Gate, Example Gate, Kanji Gate, JLPT Tagger, Card Sorter)\n"
         "\n"
         "## What this add-on does\n"
         "\n"
@@ -829,9 +1127,11 @@ def open_settings_dialog() -> None:
         "   Keeps \"advanced\" cards hidden until the \"base\" cards are learned well enough.\n"
         "2. **Example Gate**\n"
         "   Unlocks example sentence cards only after the related vocabulary is ready.\n"
-        "3. **JLPT Tagger**\n"
+        "3. **Kanji Gate**\n"
+        "   Unlocks kanji/components based on vocab thresholds and behavior mode.\n"
+        "4. **JLPT Tagger**\n"
         "   Looks up a word on Jisho, verifies it using the reading, and adds helpful tags (JLPT level + \"common\" where applicable).\n"
-        "4. **Card Sorter**\n"
+        "5. **Card Sorter**\n"
         "   Moves cards into the right decks based on note type and card template.\n"
         "\n"
         "---\n"
@@ -958,6 +1258,31 @@ def open_settings_dialog() -> None:
         "\n"
         "---\n"
         "\n"
+        "## Kanji Gate\n"
+        "\n"
+        "### Goal\n"
+        "\n"
+        "Unlock kanji, components, and radicals based on vocab templates and FSRS thresholds.\n"
+        "\n"
+        "### How it works\n"
+        "\n"
+        "* Configure one or more **vocab note types** with:\n"
+        "  * a **furigana field**\n"
+        "  * **base templates** (Grundform)\n"
+        "  * **kanjiform templates**\n"
+        "  * a **base threshold** (FSRS stability)\n"
+        "* The add-on removes anything inside `[...]` and extracts kanji characters.\n"
+        "* You choose one behavior mode:\n"
+        "  * **Kanji Only**: base threshold unlocks kanji + vocab kanjiform cards.\n"
+        "  * **Kanji then Components**: base threshold unlocks kanji + kanjiform; once kanji reaches its threshold, components + radicals unlock.\n"
+        "  * **Components then Kanji**: base threshold unlocks components first; when all components reach their threshold, the parent kanji (and kanjiform) unlocks. Radicals are synced but do not gate.\n"
+        "  * **Kanji and Components**: base threshold unlocks kanji, components, and radicals together.\n"
+        "* Stability aggregation can be set to min/max/avg.\n"
+        "\n"
+        "Tip: use a dedicated base template if you want a clean, explicit unlock trigger.\n"
+        "\n"
+        "---\n"
+        "\n"
         "## JLPT Tagger\n"
         "\n"
         "### Goal\n"
@@ -1021,6 +1346,7 @@ def open_settings_dialog() -> None:
         "\n"
         "* **Run Family Gate**\n"
         "* **Run Example Gate**\n"
+        "* **Run Kanji Gate**\n"
         "* **Run JLPT Tagger**\n"
         "* **Run Card Sorter**\n"
         "\n"
@@ -1053,6 +1379,86 @@ def open_settings_dialog() -> None:
         ex_stage_sep = example_stage_sep_edit.text().strip()
         if not ex_stage_sep:
             errors.append("Example stage separator cannot be empty.")
+
+        kanji_behavior = _combo_value(behavior_combo) or "kanji_only"
+        kanji_stab_agg = _combo_value(kanji_agg_combo) or "min"
+        kanji_note_type = _combo_value(kanji_note_type_combo)
+        kanji_field = _combo_value(kanji_field_combo)
+        kanji_alt_field = _combo_value(kanji_alt_field_combo)
+        kanji_components_field = _combo_value(kanji_components_field_combo)
+        kanji_kanji_radical_field = _combo_value(kanji_radical_field_combo)
+        kanji_radical_note_type = _combo_value(radical_note_type_combo)
+        kanji_radical_field = _combo_value(radical_field_combo)
+        kanji_threshold = float(kanji_threshold_spin.value())
+        component_threshold = float(component_threshold_spin.value())
+
+        _capture_kanji_vocab_state()
+        kanji_vocab_note_types = _checked_items(kanji_vocab_note_type_model)
+        kanji_vocab_cfg: dict[str, dict[str, Any]] = {}
+
+        if kanji_enabled_cb.isChecked():
+            if kanji_behavior not in (
+                "kanji_only",
+                "kanji_then_components",
+                "components_then_kanji",
+                "kanji_and_components",
+            ):
+                errors.append("Kanji Gate: behavior invalid.")
+            if kanji_stab_agg not in ("min", "max", "avg"):
+                errors.append("Kanji Gate: stability aggregation invalid.")
+            if not kanji_note_type:
+                errors.append("Kanji Gate: kanji note type missing.")
+            if not kanji_field:
+                errors.append("Kanji Gate: kanji field missing.")
+            if not kanji_vocab_note_types:
+                errors.append("Kanji Gate: vocab note types missing.")
+
+            uses_components = kanji_behavior in (
+                "kanji_then_components",
+                "components_then_kanji",
+                "kanji_and_components",
+            )
+            if uses_components and not kanji_components_field:
+                errors.append("Kanji Gate: components field missing.")
+
+            has_any_radical_cfg = bool(
+                kanji_kanji_radical_field or kanji_radical_note_type or kanji_radical_field
+            )
+            if uses_components and has_any_radical_cfg:
+                if not kanji_kanji_radical_field:
+                    errors.append("Kanji Gate: kanji radical field missing.")
+                if not kanji_radical_note_type:
+                    errors.append("Kanji Gate: radical note type missing.")
+                if not kanji_radical_field:
+                    errors.append("Kanji Gate: radical field missing.")
+
+        for nt_name in kanji_vocab_note_types:
+            cfg_state = kanji_vocab_state.get(nt_name, {})
+            furigana_field = str(cfg_state.get("furigana_field", "")).strip()
+            base_templates = [
+                str(x).strip() for x in (cfg_state.get("base_templates") or []) if str(x).strip()
+            ]
+            kanji_templates = [
+                str(x).strip() for x in (cfg_state.get("kanji_templates") or []) if str(x).strip()
+            ]
+            base_threshold = float(
+                cfg_state.get("base_threshold", config.STABILITY_DEFAULT_THRESHOLD)
+            )
+
+            kanji_vocab_cfg[nt_name] = {
+                "furigana_field": furigana_field,
+                "base_templates": base_templates,
+                "kanji_templates": kanji_templates,
+                "base_threshold": base_threshold,
+            }
+
+            if kanji_enabled_cb.isChecked():
+                if not furigana_field:
+                    errors.append(f"Kanji Gate: vocab field missing for note type: {nt_name}")
+                if not base_templates:
+                    errors.append(f"Kanji Gate: base templates missing for note type: {nt_name}")
+                if not kanji_templates:
+                    errors.append(f"Kanji Gate: kanjiform templates missing for note type: {nt_name}")
 
         _capture_family_state()
         family_note_types = _checked_items(family_note_type_model)
@@ -1163,6 +1569,20 @@ def open_settings_dialog() -> None:
         config._cfg_set(cfg, "example_gate.example_key_field", example_key_edit.text().strip())
         config._cfg_set(cfg, "example_gate.example_stage_syntax.separator", ex_stage_sep)
         config._cfg_set(cfg, "example_gate.example_stage_syntax.default_stage", int(example_default_stage_spin.value()))
+
+        config._cfg_set(cfg, "kanji_gate.enabled", bool(kanji_enabled_cb.isChecked()))
+        config._cfg_set(cfg, "kanji_gate.behavior", kanji_behavior)
+        config._cfg_set(cfg, "kanji_gate.stability_aggregation", kanji_stab_agg)
+        config._cfg_set(cfg, "kanji_gate.kanji_note_type", kanji_note_type)
+        config._cfg_set(cfg, "kanji_gate.kanji_field", kanji_field)
+        config._cfg_set(cfg, "kanji_gate.kanji_alt_field", kanji_alt_field)
+        config._cfg_set(cfg, "kanji_gate.components_field", kanji_components_field)
+        config._cfg_set(cfg, "kanji_gate.kanji_radical_field", kanji_kanji_radical_field)
+        config._cfg_set(cfg, "kanji_gate.radical_note_type", kanji_radical_note_type)
+        config._cfg_set(cfg, "kanji_gate.radical_field", kanji_radical_field)
+        config._cfg_set(cfg, "kanji_gate.kanji_threshold", float(kanji_threshold))
+        config._cfg_set(cfg, "kanji_gate.component_threshold", float(component_threshold))
+        config._cfg_set(cfg, "kanji_gate.vocab_note_types", kanji_vocab_cfg)
 
         config._cfg_set(cfg, "jlpt_tagger.decks", jlpt_decks)
         config._cfg_set(cfg, "jlpt_tagger.note_types", jlpt_note_types)

@@ -12,10 +12,16 @@ from . import config, logging
 from .card_sorter import sort_all as card_sorter_run_all
 from .gates.example import example_gate_apply
 from .gates.family import family_gate_apply
+from .gates.kanji import kanji_gate_apply
 from .taggers.jlpt import jlpt_tagger_apply
 
 
-def run_gate(reason: str = "manual", *, run_family: bool = True, run_example: bool = True) -> None:
+def run_gate(
+    reason: str = "manual",
+    *,
+    run_family: bool = True,
+    run_example: bool = True,
+) -> None:
     config.reload_config()
     logging.dbg("reloaded config", "debug=", config.DEBUG, "run_on_sync=", config.RUN_ON_SYNC, "run_on_ui=", config.RUN_ON_UI)
 
@@ -30,7 +36,14 @@ def run_gate(reason: str = "manual", *, run_family: bool = True, run_example: bo
         logging.dbg("run_gate: skip (run_on_ui disabled)")
         return
 
-    logging.dbg("run_gate:", reason, "run_family=", run_family, "run_example=", run_example)
+    logging.dbg(
+        "run_gate:",
+        reason,
+        "run_family=",
+        run_family,
+        "run_example=",
+        run_example,
+    )
 
     def ui_set(label: str, value: int, maxv: int) -> None:
         def _do() -> None:
@@ -45,7 +58,7 @@ def run_gate(reason: str = "manual", *, run_family: bool = True, run_example: bo
         mw.taskman.run_on_main(_do)
 
     def op(col: Collection):
-        undo_entry = col.add_custom_undo_entry("Family Gate")
+        undo_entry = col.add_custom_undo_entry("AJpC Gates")
 
         counters = {
             "cards_suspended": 0,
@@ -56,7 +69,7 @@ def run_gate(reason: str = "manual", *, run_family: bool = True, run_example: bo
             "example_notes_tagged": 0,
         }
 
-        ui_set("FamilyGate: start...", 0, 1)
+        ui_set("Gates: start...", 0, 1)
 
         if run_family and config.FAMILY_GATE_ENABLED:
             family_gate_apply(col, ui_set, counters)
@@ -73,7 +86,7 @@ def run_gate(reason: str = "manual", *, run_family: bool = True, run_example: bo
             changes = col.merge_undo_entries(undo_entry)
         except InvalidInput:
             if config.DEBUG:
-                print(f"[FamilyGate] merge_undo_entries skipped: target undo op not found (undo_entry={undo_entry})")
+                print(f"[AJpC Gates] merge_undo_entries skipped: target undo op not found (undo_entry={undo_entry})")
             changes = OpChanges()
 
         if changes is None:
@@ -86,7 +99,7 @@ def run_gate(reason: str = "manual", *, run_family: bool = True, run_example: bo
             return
         c = getattr(result, "counts", {}) or {}
         msg = (
-            "Family Gate finished.\n"
+            "Gates finished.\n"
             f"FamilyGate: unsuspended={c.get('cards_unsuspended', 0)} "
             f"suspended={c.get('cards_suspended', 0)} "
             f"tagged_notes={c.get('notes_tagged', 0)}\n"
@@ -103,7 +116,102 @@ def run_gate(reason: str = "manual", *, run_family: bool = True, run_example: bo
         if config.DEBUG:
             logging.dbg("FAILURE", repr(err))
             logging.dbg(tb)
-        showInfo("Family Gate failed:\n" + tb)
+        showInfo("Gate run failed:\n" + tb)
+
+    CollectionOp(parent=mw, op=op).success(on_success).failure(on_failure).run_in_background()
+
+
+def run_kanji_gate(*, reason: str = "manual") -> None:
+    config.reload_config()
+    logging.dbg(
+        "reloaded config",
+        "debug=",
+        config.DEBUG,
+        "run_on_sync=",
+        config.RUN_ON_SYNC,
+        "run_on_ui=",
+        config.RUN_ON_UI,
+    )
+
+    if not mw.col:
+        showInfo("No collection loaded.")
+        return
+
+    if reason == "sync" and not config.RUN_ON_SYNC:
+        logging.dbg("kanji_gate: skip (run_on_sync disabled)")
+        return
+    if reason == "manual" and not config.RUN_ON_UI:
+        logging.dbg("kanji_gate: skip (run_on_ui disabled)")
+        return
+    if not config.KANJI_GATE_ENABLED:
+        logging.dbg("kanji_gate: skip (disabled)")
+        return
+
+    def ui_set(label: str, value: int, maxv: int) -> None:
+        def _do() -> None:
+            try:
+                if mw.progress.want_cancel():
+                    logging.dbg("kanji_gate: cancelled")
+                    return
+                mw.progress.update(label=label, value=value, max=maxv)
+            except Exception:
+                return
+
+        mw.taskman.run_on_main(_do)
+
+    def op(col: Collection):
+        undo_entry = col.add_custom_undo_entry("Kanji Gate")
+
+        counters = {
+            "vocab_kanji_cards_unsuspended": 0,
+            "kanji_cards_unsuspended": 0,
+            "component_cards_unsuspended": 0,
+            "radical_cards_unsuspended": 0,
+            "kanji_gate_cards_suspended": 0,
+        }
+
+        ui_set("KanjiGate: start...", 0, 1)
+        kanji_gate_apply(col, ui_set, counters)
+
+        class _Result:
+            def __init__(self, changes, counts: dict[str, int]):
+                self.changes = changes
+                self.counts = counts
+
+        try:
+            changes = col.merge_undo_entries(undo_entry)
+        except InvalidInput:
+            if config.DEBUG:
+                print(f"[KanjiGate] merge_undo_entries skipped: target undo op not found (undo_entry={undo_entry})")
+            changes = OpChanges()
+
+        if changes is None:
+            changes = OpChanges()
+
+        return _Result(changes, counters)
+
+    def on_success(result) -> None:
+        if reason == "sync":
+            return
+        c = getattr(result, "counts", {}) or {}
+        msg = (
+            "Kanji Gate finished.\n"
+            f"vocab_kanjiform_unsuspended={c.get('vocab_kanji_cards_unsuspended', 0)} "
+            f"kanji_unsuspended={c.get('kanji_cards_unsuspended', 0)} "
+            f"components_unsuspended={c.get('component_cards_unsuspended', 0)} "
+            f"radical_unsuspended={c.get('radical_cards_unsuspended', 0)} "
+            f"suspended={c.get('kanji_gate_cards_suspended', 0)}"
+        )
+        if config.DEBUG:
+            logging.dbg("RESULT", msg)
+        show_info(msg)
+
+    def on_failure(err: Exception) -> None:
+        tb = "".join(traceback.format_exception(type(err), err, err.__traceback__))
+        if config.DEBUG:
+            logging.dbg("FAILURE", repr(err))
+            logging.dbg(tb)
+        showInfo("Kanji Gate failed:\n" + tb)
 
     CollectionOp(parent=mw, op=op).success(on_success).failure(on_failure).run_in_background()
 
