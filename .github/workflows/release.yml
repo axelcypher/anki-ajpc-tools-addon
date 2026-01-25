@@ -64,7 +64,6 @@ jobs:
             --exclude "build" \
             --exclude "__pycache__" \
             --exclude "meta.json" \
-            --exclude "README.md" \
             --exclude "config-example.json" \
             --exclude "*.ankiaddon" \
             ./ "build/"
