@@ -24,6 +24,7 @@ def open_debug_log() -> None:
 def install_menu(
     on_run_family,
     on_run_example,
+    on_run_kanji,
     on_run_jlpt,
     on_run_card_sorter,
     on_open_settings,
@@ -35,7 +36,7 @@ def install_menu(
 
     try:
         for act in list(mw.form.menuTools.actions()):
-            if act.text() in ("Run Family Gate", "Run Example Gate"):
+            if act.text() in ("Run Family Gate", "Run Example Gate", "Run Kanji Gate"):
                 mw.form.menuTools.removeAction(act)
     except Exception:
         pass
@@ -51,6 +52,11 @@ def install_menu(
     action_example.triggered.connect(on_run_example)
     action_example.setEnabled(bool(config.RUN_ON_UI))
     menu.addAction(action_example)
+
+    action_kanji = QAction("Run Kanji Gate", mw)
+    action_kanji.triggered.connect(on_run_kanji)
+    action_kanji.setEnabled(bool(config.RUN_ON_UI))
+    menu.addAction(action_kanji)
 
     action_jlpt = QAction("Run JLPT Tagger", mw)
     action_jlpt.triggered.connect(on_run_jlpt)
@@ -75,5 +81,11 @@ def install_menu(
 
     mw.form.menubar.addMenu(menu)
     mw._familygate_menu_installed = True
-    mw._familygate_run_actions = [action_family, action_example, action_jlpt, action_card_sorter]
+    mw._familygate_run_actions = [
+        action_family,
+        action_example,
+        action_kanji,
+        action_jlpt,
+        action_card_sorter,
+    ]
     mw._familygate_open_log_action = action_open_log

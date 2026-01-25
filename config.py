@@ -40,6 +40,20 @@ KEY_STRIP_FURIGANA_BR = False
 
 WATCH_NIDS: set[int] = set()
 
+KANJI_GATE_ENABLED = True
+KANJI_GATE_BEHAVIOR = "kanji_and_components"
+KANJI_GATE_STABILITY_AGG = "min"
+KANJI_GATE_VOCAB_NOTE_TYPES: dict[str, Any] = {}
+KANJI_GATE_KANJI_NOTE_TYPE = ""
+KANJI_GATE_KANJI_FIELD = ""
+KANJI_GATE_KANJI_ALT_FIELD = ""
+KANJI_GATE_COMPONENTS_FIELD = ""
+KANJI_GATE_KANJI_RADICAL_FIELD = ""
+KANJI_GATE_RADICAL_NOTE_TYPE = ""
+KANJI_GATE_RADICAL_FIELD = ""
+KANJI_GATE_KANJI_THRESHOLD = 0.0
+KANJI_GATE_COMPONENT_THRESHOLD = 0.0
+
 DEFAULT_JLPT_TAG_MAP = {
     "jlpt-n5": "JLPT::N5",
     "jlpt-n4": "JLPT::N4",
@@ -100,6 +114,11 @@ def reload_config() -> None:
     global EX_STAGE_SEP, EX_STAGE_DEFAULT, EX_APPLY_ALL_CARDS
     global KEY_NORM, KEY_STRIP_HTML, KEY_TRIM, KEY_NFC, KEY_FIRST_TOKEN, KEY_STRIP_FURIGANA_BR
     global WATCH_NIDS
+    global KANJI_GATE_ENABLED, KANJI_GATE_BEHAVIOR, KANJI_GATE_STABILITY_AGG
+    global KANJI_GATE_VOCAB_NOTE_TYPES
+    global KANJI_GATE_KANJI_NOTE_TYPE, KANJI_GATE_KANJI_FIELD, KANJI_GATE_KANJI_ALT_FIELD, KANJI_GATE_COMPONENTS_FIELD
+    global KANJI_GATE_KANJI_RADICAL_FIELD, KANJI_GATE_RADICAL_NOTE_TYPE, KANJI_GATE_RADICAL_FIELD
+    global KANJI_GATE_KANJI_THRESHOLD, KANJI_GATE_COMPONENT_THRESHOLD
     global JLPT_TAGGER_DECKS, JLPT_TAGGER_NOTE_TYPES, JLPT_TAGGER_FIELDS, JLPT_TAGGER_TAG_MAP
     global CARD_SORTER_ENABLED, CARD_SORTER_RUN_ON_ADD, CARD_SORTER_RUN_ON_SYNC_START, CARD_SORTER_RUN_ON_SYNC_FINISH
     global CARD_SORTER_EXCLUDE_DECKS, CARD_SORTER_EXCLUDE_TAGS, CARD_SORTER_NOTE_TYPES
@@ -152,6 +171,28 @@ def reload_config() -> None:
     KEY_NFC = bool(KEY_NORM.get("unicode_nfc", True))
     KEY_FIRST_TOKEN = bool(KEY_NORM.get("first_token_only", True))
     KEY_STRIP_FURIGANA_BR = bool(KEY_NORM.get("strip_furigana_brackets", False))
+
+    KANJI_GATE_ENABLED = bool(cfg_get("kanji_gate.enabled", True))
+    KANJI_GATE_BEHAVIOR = str(cfg_get("kanji_gate.behavior", "kanji_and_components")).strip()
+    if not KANJI_GATE_BEHAVIOR:
+        KANJI_GATE_BEHAVIOR = "kanji_and_components"
+    KANJI_GATE_STABILITY_AGG = str(cfg_get("kanji_gate.stability_aggregation", "min")).lower().strip()
+    if KANJI_GATE_STABILITY_AGG not in ("min", "max", "avg"):
+        KANJI_GATE_STABILITY_AGG = "min"
+    KANJI_GATE_VOCAB_NOTE_TYPES = cfg_get("kanji_gate.vocab_note_types", {}) or {}
+    KANJI_GATE_KANJI_NOTE_TYPE = str(cfg_get("kanji_gate.kanji_note_type", "")).strip()
+    KANJI_GATE_KANJI_FIELD = str(cfg_get("kanji_gate.kanji_field", "")).strip()
+    KANJI_GATE_KANJI_ALT_FIELD = str(cfg_get("kanji_gate.kanji_alt_field", "")).strip()
+    KANJI_GATE_COMPONENTS_FIELD = str(cfg_get("kanji_gate.components_field", "")).strip()
+    KANJI_GATE_KANJI_RADICAL_FIELD = str(cfg_get("kanji_gate.kanji_radical_field", "")).strip()
+    KANJI_GATE_RADICAL_NOTE_TYPE = str(cfg_get("kanji_gate.radical_note_type", "")).strip()
+    KANJI_GATE_RADICAL_FIELD = str(cfg_get("kanji_gate.radical_field", "")).strip()
+    KANJI_GATE_KANJI_THRESHOLD = float(
+        cfg_get("kanji_gate.kanji_threshold", STABILITY_DEFAULT_THRESHOLD)
+    )
+    KANJI_GATE_COMPONENT_THRESHOLD = float(
+        cfg_get("kanji_gate.component_threshold", STABILITY_DEFAULT_THRESHOLD)
+    )
 
     JLPT_TAGGER_DECKS = list(cfg_get("jlpt_tagger.decks", []) or [])
     JLPT_TAGGER_NOTE_TYPES = list(cfg_get("jlpt_tagger.note_types", []) or [])

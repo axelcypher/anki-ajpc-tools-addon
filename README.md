@@ -1,4 +1,4 @@
-# AJpC Add-on Documentation (Family Gate, Example Gate, JLPT Tagger, Card Sorter)
+# AJpC Add-on Documentation (Family Gate, Example Gate, Kanji Gate, JLPT Tagger, Card Sorter)
 
 ## What this add-on does
 
@@ -8,9 +8,11 @@ This add-on helps you control *when* Anki cards become available, so you can lea
    Keeps "advanced" cards hidden until the "base" cards are learned well enough.
 2. **Example Gate**
    Unlocks example sentence cards only after the related vocabulary is ready.
-3. **JLPT Tagger**
+3. **Kanji Gate**
+   Unlocks kanji/components based on vocab thresholds and behavior mode.
+4. **JLPT Tagger**
    Looks up a word on Jisho, verifies it using the reading, and adds helpful tags (JLPT level + "common" where applicable).
-4. **Card Sorter**
+5. **Card Sorter**
    Moves cards into preconfigured decks based on note type and card template.
 
 This add-on relies primarily on **FSRS** stability ratings, so you must use FSRS to use it!
@@ -140,6 +142,31 @@ An example card is allowed only if:
 
 ---
 
+## Kanji Gate
+
+### Goal
+
+Unlock kanji, components, and radicals based on vocab templates and FSRS thresholds.
+
+### How it works
+
+* Configure one or more **vocab note types** with:
+  * a **furigana field**
+  * **base templates** (Grundform)
+  * **kanjiform templates**
+  * a **base threshold** (FSRS stability)
+* The add-on removes anything inside `[...]` and extracts kanji characters.
+* You choose one behavior mode:
+  * **Kanji Only**: base threshold unlocks kanji + vocab kanjiform cards.
+  * **Kanji then Components**: base threshold unlocks kanji + kanjiform; once kanji reaches its threshold, components + radicals unlock.
+  * **Components then Kanji**: base threshold unlocks components first; when all components reach their threshold, the parent kanji (and kanjiform) unlocks. Radicals are synced but do not gate.
+  * **Kanji and Components**: base threshold unlocks kanji, components, and radicals together.
+* Stability aggregation can be set to min/max/avg.
+
+Tip: use a dedicated base template if you want a clean, explicit unlock trigger.
+
+---
+
 ## JLPT Tagger
 
 ### Goal
@@ -204,6 +231,7 @@ In Anki you have an AJpC menu with:
 
 * **Run Family Gate**
 * **Run Example Gate**
+* **Run Kanji Gate**
 * **Run JLPT Tagger**
 * **Run Card Sorter**
 
