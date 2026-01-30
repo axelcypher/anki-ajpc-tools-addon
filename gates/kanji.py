@@ -26,7 +26,7 @@ KANJI_STICKY_TAG_RADICAL = f"{KANJI_STICKY_TAG_BASE}::radical"
 
 @dataclass(frozen=True)
 class VocabCfg:
-    note_type: str
+    note_type_id: str
     furigana_field: str
     base_templates: list[str]
     kanji_templates: list[str]
@@ -36,7 +36,6 @@ class VocabCfg:
 @dataclass(frozen=True)
 class VocabNoteInfo:
     nid: int
-    note_type: str
     kanji: list[str]
     base_ready: bool
     kanji_card_ids: list[int]
@@ -118,7 +117,7 @@ def _get_vocab_cfgs() -> dict[str, VocabCfg]:
         kanji_templates = [str(x).strip() for x in (cfg.get("kanji_templates") or []) if str(x).strip()]
         base_threshold = float(cfg.get("base_threshold", config.STABILITY_DEFAULT_THRESHOLD))
         out[str(nt_name)] = VocabCfg(
-            note_type=str(nt_name),
+            note_type_id=str(nt_name),
             furigana_field=furigana_field,
             base_templates=base_templates,
             kanji_templates=kanji_templates,
@@ -198,7 +197,8 @@ def kanji_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
             note = _get_note(nid)
             model = col.models.get(note.mid)
             nt_name = str(model.get("name", "")) if model else ""
-            cfg = vocab_cfgs.get(nt_name)
+            nt_id = str(note.mid)
+            cfg = vocab_cfgs.get(nt_id) or vocab_cfgs.get(nt_name)
             if not cfg:
                 continue
             if cfg.furigana_field not in note:
@@ -228,7 +228,6 @@ def kanji_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
             vocab_notes.append(
                 VocabNoteInfo(
                     nid=nid,
-                    note_type=nt_name,
                     kanji=kanji_list,
                     base_ready=base_ready,
                     kanji_card_ids=kanji_card_ids,

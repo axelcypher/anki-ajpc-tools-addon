@@ -27,7 +27,7 @@ from ..utils import (
 @dataclass
 class NoteInFamily:
     nid: int
-    note_type: str
+    note_type_id: int
     prio: int
 
 
@@ -46,13 +46,12 @@ def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
     debug_template_coverage(col)
 
     fam_map: dict[str, list[NoteInFamily]] = {}
-    note_refs: dict[int, tuple[str, list]] = {}
+    note_refs: dict[int, tuple[int, list]] = {}
 
     for i, nid in enumerate(nids):
         try:
             note = col.get_note(nid)
-            model = col.models.get(note.mid)
-            nt_name = str(model.get("name", ""))
+            nt_id = int(note.mid)
 
             if config.FAMILY_FIELD not in note:
                 continue
@@ -61,10 +60,10 @@ def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
             if not refs:
                 continue
 
-            note_refs[nid] = (nt_name, refs)
+            note_refs[nid] = (nt_id, refs)
 
             for r in refs:
-                fam_map.setdefault(r.fid, []).append(NoteInFamily(nid=nid, note_type=nt_name, prio=r.prio))
+                fam_map.setdefault(r.fid, []).append(NoteInFamily(nid=nid, note_type_id=nt_id, prio=r.prio))
 
             if i % 250 == 0:
                 ui_set(
@@ -81,19 +80,19 @@ def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
     note_stage_stabs: dict[int, list[float | None]] = {}
     note_stage0_ready: dict[int, bool] = {}
 
-    for i, (nid, (nt_name, _refs)) in enumerate(note_refs.items()):
+    for i, (nid, (nt_id, _refs)) in enumerate(note_refs.items()):
         try:
             note = col.get_note(nid)
-            stages = get_stage_cfg_for_note_type(nt_name)
+            stages = get_stage_cfg_for_note_type(nt_id)
             if not stages:
                 note_stage_stabs[nid] = []
                 note_stage0_ready[nid] = True
                 continue
 
-            stabs = compute_stage_stabilities(col, note, nt_name)
+            stabs = compute_stage_stabilities(col, note, nt_id)
             note_stage_stabs[nid] = stabs
             s0 = stabs[0] if stabs else None
-            note_stage0_ready[nid] = stage_is_ready(nt_name, 0, s0)
+            note_stage0_ready[nid] = stage_is_ready(nt_id, 0, s0)
         except Exception:
             note_stage_stabs[nid] = []
             note_stage0_ready[nid] = False
@@ -137,10 +136,10 @@ def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
     to_unsuspend: list[int] = []
 
     note_items = list(note_refs.items())
-    for i, (nid, (nt_name, refs)) in enumerate(note_items):
+    for i, (nid, (nt_id, refs)) in enumerate(note_items):
         try:
             note = col.get_note(nid)
-            stages = get_stage_cfg_for_note_type(nt_name)
+            stages = get_stage_cfg_for_note_type(nt_id)
             if not stages:
                 continue
 
@@ -156,14 +155,14 @@ def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
             prev_stage_ok = True
 
             for st_idx in range(len(stages)):
-                st_cids = stage_card_ids(col, note, nt_name, st_idx)
+                st_cids = stage_card_ids(col, note, nt_id, st_idx)
                 if not st_cids:
                     continue
 
                 should_open = effective_gate_open if st_idx == 0 else (effective_gate_open and prev_stage_ok)
 
                 stab_val = stabs[st_idx] if st_idx < len(stabs) else None
-                this_stage_ready = stage_is_ready(nt_name, st_idx, stab_val)
+                this_stage_ready = stage_is_ready(nt_id, st_idx, stab_val)
 
                 st_tag = stage_tag(st_idx)
                 st_sticky = config.STICKY_UNLOCK and (st_tag in note.tags)

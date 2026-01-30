@@ -258,8 +258,11 @@ class StageCfg:
     threshold: float
 
 
-def get_stage_cfg_for_note_type(note_type_name: str) -> list[StageCfg]:
-    nt = config.FAMILY_NOTE_TYPES.get(note_type_name) or {}
+def get_stage_cfg_for_note_type(note_type_id: int | str) -> list[StageCfg]:
+    key = str(note_type_id)
+    nt = config.FAMILY_NOTE_TYPES.get(key) or {}
+    if not nt and not key.isdigit():
+        nt = config.FAMILY_NOTE_TYPES.get(str(note_type_id)) or {}
     stages = nt.get("stages") or []
     out: list[StageCfg] = []
 
@@ -286,8 +289,8 @@ def _tmpl_by_ord(col: Collection, note) -> dict[int, str]:
     return out
 
 
-def compute_stage_stabilities(col: Collection, note, note_type_name: str) -> list[float | None]:
-    stages = get_stage_cfg_for_note_type(note_type_name)
+def compute_stage_stabilities(col: Collection, note, note_type_id: int | str) -> list[float | None]:
+    stages = get_stage_cfg_for_note_type(note_type_id)
     if not stages:
         return []
 
@@ -320,8 +323,8 @@ def compute_stage_stabilities(col: Collection, note, note_type_name: str) -> lis
     return stabs
 
 
-def stage_is_ready(note_type_name: str, stage_index: int, stage_stab: float | None) -> bool:
-    stages = get_stage_cfg_for_note_type(note_type_name)
+def stage_is_ready(note_type_id: int | str, stage_index: int, stage_stab: float | None) -> bool:
+    stages = get_stage_cfg_for_note_type(note_type_id)
     if stage_index < 0 or stage_index >= len(stages):
         return False
     if stage_stab is None:
@@ -329,8 +332,8 @@ def stage_is_ready(note_type_name: str, stage_index: int, stage_stab: float | No
     return stage_stab >= float(stages[stage_index].threshold)
 
 
-def stage_card_ids(col: Collection, note, note_type_name: str, stage_index: int) -> list[int]:
-    stages = get_stage_cfg_for_note_type(note_type_name)
+def stage_card_ids(col: Collection, note, note_type_id: int | str, stage_index: int) -> list[int]:
+    stages = get_stage_cfg_for_note_type(note_type_id)
     if stage_index < 0 or stage_index >= len(stages):
         return []
 
@@ -343,14 +346,14 @@ def stage_card_ids(col: Collection, note, note_type_name: str, stage_index: int)
             cids.append(c.id)
 
     if config.DEBUG and not cids:
-        key = (note_type_name, stage_index)
+        key = (note_type_id, stage_index)
         if key not in _LOGGED_TEMPLATE_MISS:
             _LOGGED_TEMPLATE_MISS.add(key)
             avail = sorted({v for v in name_by_ord.values() if v})
             logging.dbg(
                 "stage_card_ids: no cards matched stage",
-                "note_type=",
-                note_type_name,
+                "note_type_id=",
+                note_type_id,
                 "stage=",
                 stage_index,
                 "wanted=",
@@ -365,15 +368,19 @@ def stage_card_ids(col: Collection, note, note_type_name: str, stage_index: int)
 def debug_template_coverage(col: Collection) -> None:
     if not config.DEBUG:
         return
-    for nt_name in config.FAMILY_NOTE_TYPES.keys():
-        m = col.models.by_name(nt_name)
+    for nt_id in config.FAMILY_NOTE_TYPES.keys():
+        try:
+            mid = int(nt_id)
+        except Exception:
+            mid = None
+        m = col.models.get(mid) if mid is not None else None
         if not m:
-            logging.dbg("coverage", nt_name, "model_not_found")
+            logging.dbg("coverage", nt_id, "model_not_found")
             continue
 
         model_names = [str(t.get("name", "")) for t in (m.get("tmpls") or [])]
         cfg_names: set[str] = set()
-        for st in get_stage_cfg_for_note_type(nt_name):
+        for st in get_stage_cfg_for_note_type(nt_id):
             cfg_names |= set(st.templates)
 
         missing = [n for n in model_names if n and n not in cfg_names]
@@ -382,7 +389,7 @@ def debug_template_coverage(col: Collection) -> None:
         if missing or extra:
             logging.dbg(
                 "coverage",
-                nt_name,
+                nt_id,
                 "missing_from_cfg=",
                 [repr(x) for x in missing],
                 "cfg_unknown=",
@@ -394,10 +401,43 @@ def _anki_quote(s: str) -> str:
     return (s or "").replace("\\", "\\\\").replace('"', '\\"')
 
 
-def note_ids_for_note_types(col: Collection, note_types: list[str]) -> list[int]:
+def _note_type_id_from_identifier(col: Collection, ident: Any) -> int | None:
+    if ident is None:
+        return None
+    if isinstance(ident, int):
+        return ident
+    s = str(ident).strip()
+    if not s:
+        return None
+    if s.isdigit():
+        try:
+            mid = int(s)
+        except Exception:
+            return None
+        model = col.models.get(mid)
+        if model:
+            return mid
+        return None
+    try:
+        model = col.models.by_name(s)
+    except Exception:
+        model = None
+    if not model:
+        return None
+    try:
+        return int(model.get("id"))
+    except Exception:
+        return None
+
+
+def note_ids_for_note_types(col: Collection, note_types: list[Any]) -> list[int]:
     nids: list[int] = []
     for nt in note_types:
-        q = f'note:"{_anki_quote(nt)}"'
+        mid = _note_type_id_from_identifier(col, nt)
+        if mid is not None:
+            q = f"mid:{mid}"
+        else:
+            q = f'note:"{_anki_quote(str(nt))}"'
         if config.DEBUG:
             logging.dbg("note_ids_for_note_types", nt, "->", q)
         try:

@@ -24,7 +24,7 @@ from ..utils import (
 @dataclass
 class VocabIndexEntry:
     nid: int
-    note_type: str
+    note_type_id: int
     stage_stabs: list[float | None]
 
 
@@ -59,10 +59,9 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
     for i, nid in enumerate(vocab_nids):
         try:
             note = col.get_note(nid)
-            model = col.models.get(note.mid)
-            nt_name = str(model.get("name", ""))
+            nt_id = int(note.mid)
 
-            if nt_name not in config.FAMILY_NOTE_TYPES:
+            if str(nt_id) not in config.FAMILY_NOTE_TYPES:
                 continue
             if config.VOCAB_KEY_FIELD not in note:
                 continue
@@ -73,8 +72,8 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
             if key in vocab_index:
                 continue
 
-            stabs = compute_stage_stabilities(col, note, nt_name)
-            vocab_index[key] = VocabIndexEntry(nid=nid, note_type=nt_name, stage_stabs=stabs)
+            stabs = compute_stage_stabilities(col, note, nt_id)
+            vocab_index[key] = VocabIndexEntry(nid=nid, note_type_id=nt_id, stage_stabs=stabs)
 
             if config.DEBUG and i < 10:
                 logging.dbg("example_gate: indexed", key, "stabs", stabs)
@@ -120,8 +119,8 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
                 reason = "no_vocab_match"
             elif 0 <= ref.stage < len(entry.stage_stabs):
                 stab_val = entry.stage_stabs[ref.stage]
-                allow = stage_is_ready(entry.note_type, ref.stage, stab_val)
-                thr = get_stage_cfg_for_note_type(entry.note_type)[ref.stage].threshold
+                allow = stage_is_ready(entry.note_type_id, ref.stage, stab_val)
+                thr = get_stage_cfg_for_note_type(entry.note_type_id)[ref.stage].threshold
                 reason = f"stab={stab_val} thr={thr}"
             else:
                 allow = False

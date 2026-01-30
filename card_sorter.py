@@ -25,7 +25,7 @@ def _get_note_type_cfgs() -> dict[str, dict[str, Any]]:
     if not isinstance(raw, dict):
         return {}
     out: dict[str, dict[str, Any]] = {}
-    for nt_name, cfg in raw.items():
+    for nt_id, cfg in raw.items():
         if not isinstance(cfg, dict):
             continue
         mode = str(cfg.get("mode", "by_template")).strip() or "by_template"
@@ -38,7 +38,7 @@ def _get_note_type_cfgs() -> dict[str, dict[str, Any]]:
                 tv = str(v).strip()
                 if tk and tv:
                     by_template[tk] = tv
-        out[str(nt_name)] = {
+        out[str(nt_id)] = {
             "mode": mode,
             "default_deck": default_deck,
             "by_template": by_template,
@@ -142,7 +142,8 @@ def _sort_notes(notes: list, note_type_cfgs: dict[str, dict[str, Any]], skipped_
     for note in notes:
         model = mw.col.models.get(note.mid)
         nt_name = str(model.get("name", "")) if model else ""
-        cfg = note_type_cfgs.get(nt_name)
+        nt_id = str(note.mid)
+        cfg = note_type_cfgs.get(nt_id)
         if not cfg:
             continue
 

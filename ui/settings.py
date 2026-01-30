@@ -24,6 +24,7 @@ from aqt.qt import (
     QStandardItemModel,
     QTabWidget,
     QTextBrowser,
+    QHBoxLayout,
     QVBoxLayout,
     QWidget,
     Qt,
@@ -31,6 +32,7 @@ from aqt.qt import (
 from aqt.utils import showInfo, show_info
 
 from .. import config, logging
+from . import menu
 from ..version import __version__
 
 
@@ -68,20 +70,11 @@ def _parse_list_entries(text: str) -> list[str]:
 def _update_menu_state() -> None:
     if mw is None:
         return
-    actions = getattr(mw, "_familygate_run_actions", None)
-    if not actions:
-        return
-    for act in actions:
-        try:
-            act.setEnabled(bool(config.RUN_ON_UI))
-        except Exception:
-            continue
-    try:
-        open_log_action = getattr(mw, "_familygate_open_log_action", None)
-        if open_log_action is not None:
-            open_log_action.setVisible(bool(config.DEBUG))
-    except Exception:
-        pass
+    api = getattr(mw, "_ajpc_menu_api", None)
+    if isinstance(api, dict):
+        refresh = api.get("refresh")
+        if callable(refresh):
+            refresh()
 
 
 def _get_deck_names() -> list[str]:
@@ -108,31 +101,67 @@ def _get_deck_names() -> list[str]:
     return sorted(set(names))
 
 
-def _get_note_type_names() -> list[str]:
+def _get_note_type_items() -> list[tuple[str, str]]:
     if mw is None or not getattr(mw, "col", None):
         return []
-    names: list[str] = []
+    items: list[tuple[str, str]] = []
     try:
         models = mw.col.models.all()
         for m in models:
             if isinstance(m, dict):
                 name = m.get("name")
+                mid = m.get("id")
             else:
                 name = getattr(m, "name", None)
-            if name:
-                names.append(str(name))
+                mid = getattr(m, "id", None)
+            if name and mid is not None:
+                items.append((str(mid), str(name)))
     except Exception:
-        names = []
-    return sorted(set(names))
+        items = []
+    items.sort(key=lambda x: x[1].lower())
+    return items
 
 
-def _get_fields_for_note_type(note_type_name: str) -> list[str]:
+def _note_type_label(note_type_id: str) -> str:
+    if mw is None or not getattr(mw, "col", None):
+        return f"<missing {note_type_id}>"
+    try:
+        mid = int(str(note_type_id))
+    except Exception:
+        mid = None
+    model = mw.col.models.get(mid) if mid is not None else None
+    if not model:
+        return f"<missing {note_type_id}>"
+    return str(model.get("name", note_type_id))
+
+
+def _merge_note_type_items(
+    base: list[tuple[str, str]], extra_ids: list[str]
+) -> list[tuple[str, str]]:
+    out = list(base)
+    seen = {str(k) for k, _ in base}
+    for raw in extra_ids:
+        sid = str(raw).strip()
+        if not sid or sid in seen:
+            continue
+        out.append((sid, f"<missing {sid}>"))
+        seen.add(sid)
+    return out
+
+
+def _get_fields_for_note_type(note_type_id: str) -> list[str]:
     if mw is None or not getattr(mw, "col", None):
         return []
     try:
-        model = mw.col.models.by_name(note_type_name)
+        mid = int(str(note_type_id))
+        model = mw.col.models.get(mid)
     except Exception:
         model = None
+    if not model:
+        try:
+            model = mw.col.models.by_name(str(note_type_id))
+        except Exception:
+            model = None
     if not model:
         return []
     fields = model.get("flds", []) if isinstance(model, dict) else []
@@ -147,13 +176,19 @@ def _get_fields_for_note_type(note_type_name: str) -> list[str]:
     return out
 
 
-def _get_template_names(note_type_name: str) -> list[str]:
+def _get_template_names(note_type_id: str) -> list[str]:
     if mw is None or not getattr(mw, "col", None):
         return []
     try:
-        model = mw.col.models.by_name(note_type_name)
+        mid = int(str(note_type_id))
+        model = mw.col.models.get(mid)
     except Exception:
         model = None
+    if not model:
+        try:
+            model = mw.col.models.by_name(str(note_type_id))
+        except Exception:
+            model = None
     if not model:
         return []
     tmpls = model.get("tmpls", []) if isinstance(model, dict) else []
@@ -188,12 +223,22 @@ def _checked_items(model: QStandardItemModel) -> list[str]:
     for i in range(model.rowCount()):
         item = model.item(i)
         if item and item.checkState() == Qt.CheckState.Checked:
+            data = item.data(Qt.ItemDataRole.UserRole)
+            out.append(str(data) if data is not None else item.text())
+    return out
+
+
+def _checked_labels(model: QStandardItemModel) -> list[str]:
+    out: list[str] = []
+    for i in range(model.rowCount()):
+        item = model.item(i)
+        if item and item.checkState() == Qt.CheckState.Checked:
             out.append(item.text())
     return out
 
 
 def _sync_checkable_combo_text(combo: QComboBox, model: QStandardItemModel) -> None:
-    checked = _checked_items(model)
+    checked = _checked_labels(model)
     if checked:
         text = ", ".join(checked[:3])
         if len(checked) > 3:
@@ -204,18 +249,25 @@ def _sync_checkable_combo_text(combo: QComboBox, model: QStandardItemModel) -> N
         combo.lineEdit().setText(text)
 
 
-def _make_checkable_combo(items: list[str], selected: list[str]) -> tuple[QComboBox, QStandardItemModel]:
+def _make_checkable_combo(items: list[Any], selected: list[str]) -> tuple[QComboBox, QStandardItemModel]:
     combo = QComboBox()
     combo.setEditable(True)
     if combo.lineEdit() is not None:
         combo.lineEdit().setReadOnly(True)
     model = QStandardItemModel(combo)
-    selected_set = set(selected or [])
-    for name in items:
-        item = QStandardItem(name)
+    selected_set = {str(x) for x in (selected or [])}
+    for it in items:
+        if isinstance(it, (list, tuple)) and len(it) == 2:
+            value = str(it[0])
+            label = str(it[1])
+        else:
+            value = str(it)
+            label = str(it)
+        item = QStandardItem(label)
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setData(value, Qt.ItemDataRole.UserRole)
         item.setData(
-            Qt.CheckState.Checked if name in selected_set else Qt.CheckState.Unchecked,
+            Qt.CheckState.Checked if value in selected_set else Qt.CheckState.Unchecked,
             Qt.ItemDataRole.CheckStateRole,
         )
         model.appendRow(item)
@@ -240,16 +292,23 @@ def _make_checkable_combo(items: list[str], selected: list[str]) -> tuple[QCombo
 def _rebuild_checkable_model(
     combo: QComboBox,
     model: QStandardItemModel,
-    items: list[str],
+    items: list[Any],
     selected: list[str],
 ) -> None:
     model.clear()
-    selected_set = set(selected or [])
-    for name in items:
-        item = QStandardItem(name)
+    selected_set = {str(x) for x in (selected or [])}
+    for it in items:
+        if isinstance(it, (list, tuple)) and len(it) == 2:
+            value = str(it[0])
+            label = str(it[1])
+        else:
+            value = str(it)
+            label = str(it)
+        item = QStandardItem(label)
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setData(value, Qt.ItemDataRole.UserRole)
         item.setData(
-            Qt.CheckState.Checked if name in selected_set else Qt.CheckState.Unchecked,
+            Qt.CheckState.Checked if value in selected_set else Qt.CheckState.Unchecked,
             Qt.ItemDataRole.CheckStateRole,
         )
         model.appendRow(item)
@@ -273,16 +332,16 @@ def _populate_deck_combo(combo: QComboBox, deck_names: list[str], current_value:
         combo.setCurrentIndex(0)
 
 
-def _populate_note_type_combo(combo: QComboBox, note_type_names: list[str], current_value: str) -> None:
+def _populate_note_type_combo(combo: QComboBox, note_type_items: list[tuple[str, str]], current_value: str) -> None:
     combo.setEditable(False)
     combo.addItem("<none>", "")
-    for name in note_type_names:
-        combo.addItem(name, name)
+    for note_type_id, name in note_type_items:
+        combo.addItem(name, str(note_type_id))
     cur = (current_value or "").strip()
     if cur:
         idx = combo.findData(cur)
         if idx == -1:
-            combo.addItem(f"{cur} (missing)", cur)
+            combo.addItem(f"<missing {cur}>", cur)
             idx = combo.findData(cur)
         if idx >= 0:
             combo.setCurrentIndex(idx)
@@ -365,11 +424,11 @@ def open_settings_dialog() -> None:
     family_prio_spin.setValue(config.FAMILY_DEFAULT_PRIO)
     family_form.addRow("Default prio", family_prio_spin)
 
-    family_note_type_names = sorted(
-        set(_get_note_type_names() + list((config.FAMILY_NOTE_TYPES or {}).keys()))
+    family_note_type_items = _merge_note_type_items(
+        _get_note_type_items(), list((config.FAMILY_NOTE_TYPES or {}).keys())
     )
     family_note_type_combo, family_note_type_model = _make_checkable_combo(
-        family_note_type_names, list((config.FAMILY_NOTE_TYPES or {}).keys())
+        family_note_type_items, list((config.FAMILY_NOTE_TYPES or {}).keys())
     )
     family_form.addRow("Note types", family_note_type_combo)
 
@@ -387,7 +446,7 @@ def open_settings_dialog() -> None:
     family_stages_layout.addWidget(family_stages_scroll)
 
     family_state: dict[str, list[dict[str, Any]]] = {}
-    for nt_name, nt_cfg in (config.FAMILY_NOTE_TYPES or {}).items():
+    for nt_id, nt_cfg in (config.FAMILY_NOTE_TYPES or {}).items():
         stages = nt_cfg.get("stages") if isinstance(nt_cfg, dict) else None
         out_stages: list[dict[str, Any]] = []
         if isinstance(stages, list):
@@ -401,12 +460,12 @@ def open_settings_dialog() -> None:
                     out_stages.append(
                         {"templates": tmpls, "threshold": config.STABILITY_DEFAULT_THRESHOLD}
                     )
-        family_state[nt_name] = out_stages
+        family_state[str(nt_id)] = out_stages
 
     family_note_type_widgets: dict[str, list[dict[str, Any]]] = {}
 
     def _capture_family_state() -> None:
-        for nt_name, stages in family_note_type_widgets.items():
+        for nt_id, stages in family_note_type_widgets.items():
             out: list[dict[str, Any]] = []
             for stage in stages:
                 templates_model = stage["templates_model"]
@@ -417,7 +476,7 @@ def open_settings_dialog() -> None:
                         "threshold": float(threshold_spin.value()),
                     }
                 )
-            family_state[nt_name] = out
+            family_state[nt_id] = out
 
     def _clear_family_layout() -> None:
         while family_stages_container_layout.count():
@@ -426,19 +485,19 @@ def open_settings_dialog() -> None:
             if w is not None:
                 w.deleteLater()
 
-    def _add_family_stage(nt_name: str) -> None:
+    def _add_family_stage(nt_id: str) -> None:
         _capture_family_state()
-        family_state.setdefault(nt_name, []).append(
+        family_state.setdefault(nt_id, []).append(
             {"templates": [], "threshold": float(config.STABILITY_DEFAULT_THRESHOLD)}
         )
         _refresh_family_stages(capture=False)
 
-    def _remove_family_stage(nt_name: str, idx: int) -> None:
+    def _remove_family_stage(nt_id: str, idx: int) -> None:
         _capture_family_state()
-        stages = family_state.get(nt_name, [])
+        stages = family_state.get(nt_id, [])
         if 0 <= idx < len(stages):
             del stages[idx]
-        family_state[nt_name] = stages
+        family_state[nt_id] = stages
         _refresh_family_stages(capture=False)
 
     def _refresh_family_stages(*, capture: bool = True) -> None:
@@ -448,19 +507,19 @@ def open_settings_dialog() -> None:
         family_note_type_widgets.clear()
 
         selected_types = _checked_items(family_note_type_model)
-        for nt_name in selected_types:
-            stages = family_state.get(nt_name, [])
-            family_note_type_widgets[nt_name] = []
+        for nt_id in selected_types:
+            stages = family_state.get(nt_id, [])
+            family_note_type_widgets[nt_id] = []
 
-            group = QGroupBox(nt_name)
+            group = QGroupBox(_note_type_label(nt_id))
             group_layout = QVBoxLayout()
             group.setLayout(group_layout)
 
             add_btn = QPushButton("Add stage")
-            add_btn.clicked.connect(lambda _=None, n=nt_name: _add_family_stage(n))
+            add_btn.clicked.connect(lambda _=None, n=nt_id: _add_family_stage(n))
             group_layout.addWidget(add_btn)
 
-            all_templates = set(_get_template_names(nt_name))
+            all_templates = set(_get_template_names(nt_id))
             for st in stages:
                 for t in st.get("templates", []) or []:
                     all_templates.add(str(t))
@@ -483,11 +542,11 @@ def open_settings_dialog() -> None:
                 stage_form.addRow("Threshold", threshold_spin)
 
                 remove_btn = QPushButton("Remove stage")
-                remove_btn.clicked.connect(lambda _=None, n=nt_name, i=idx: _remove_family_stage(n, i))
+                remove_btn.clicked.connect(lambda _=None, n=nt_id, i=idx: _remove_family_stage(n, i))
                 stage_form.addRow(remove_btn)
 
                 group_layout.addWidget(stage_box)
-                family_note_type_widgets[nt_name].append(
+                family_note_type_widgets[nt_id].append(
                     {
                         "templates_model": templates_model,
                         "threshold_spin": threshold_spin,
@@ -572,11 +631,14 @@ def open_settings_dialog() -> None:
     kanji_agg_combo.setCurrentIndex(agg_index)
     kanji_form.addRow("Stability aggregation", kanji_agg_combo)
 
-    kanji_note_type_names = _get_note_type_names()
+    kanji_note_type_items = _merge_note_type_items(
+        _get_note_type_items(),
+        [config.KANJI_GATE_KANJI_NOTE_TYPE, config.KANJI_GATE_RADICAL_NOTE_TYPE],
+    )
 
     kanji_note_type_combo = QComboBox()
     _populate_note_type_combo(
-        kanji_note_type_combo, kanji_note_type_names, config.KANJI_GATE_KANJI_NOTE_TYPE
+        kanji_note_type_combo, kanji_note_type_items, config.KANJI_GATE_KANJI_NOTE_TYPE
     )
     kanji_form.addRow("Kanji note type", kanji_note_type_combo)
 
@@ -617,7 +679,7 @@ def open_settings_dialog() -> None:
     radical_note_type_label = QLabel("Radical note type")
     radical_note_type_combo = QComboBox()
     _populate_note_type_combo(
-        radical_note_type_combo, kanji_note_type_names, config.KANJI_GATE_RADICAL_NOTE_TYPE
+        radical_note_type_combo, kanji_note_type_items, config.KANJI_GATE_RADICAL_NOTE_TYPE
     )
     kanji_form.addRow(radical_note_type_label, radical_note_type_combo)
 
@@ -644,11 +706,11 @@ def open_settings_dialog() -> None:
     component_threshold_spin.setValue(float(config.KANJI_GATE_COMPONENT_THRESHOLD))
     kanji_form.addRow(component_threshold_label, component_threshold_spin)
 
-    vocab_note_type_names = sorted(
-        set(_get_note_type_names() + list((config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).keys()))
+    vocab_note_type_items = _merge_note_type_items(
+        _get_note_type_items(), list((config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).keys())
     )
     kanji_vocab_note_type_combo, kanji_vocab_note_type_model = _make_checkable_combo(
-        vocab_note_type_names, list((config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).keys())
+        vocab_note_type_items, list((config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).keys())
     )
     kanji_form.addRow("Vocab note types", kanji_vocab_note_type_combo)
 
@@ -666,10 +728,10 @@ def open_settings_dialog() -> None:
     kanji_layout.addWidget(vocab_group)
 
     kanji_vocab_state: dict[str, dict[str, Any]] = {}
-    for nt_name, nt_cfg in (config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).items():
+    for nt_id, nt_cfg in (config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).items():
         if not isinstance(nt_cfg, dict):
             continue
-        kanji_vocab_state[nt_name] = {
+        kanji_vocab_state[str(nt_id)] = {
             "furigana_field": str(nt_cfg.get("furigana_field", "")).strip(),
             "base_templates": [str(x) for x in (nt_cfg.get("base_templates") or [])],
             "kanji_templates": [str(x) for x in (nt_cfg.get("kanji_templates") or [])],
@@ -688,8 +750,8 @@ def open_settings_dialog() -> None:
                 w.deleteLater()
 
     def _capture_kanji_vocab_state() -> None:
-        for nt_name, widgets in kanji_vocab_widgets.items():
-            kanji_vocab_state[nt_name] = {
+        for nt_id, widgets in kanji_vocab_widgets.items():
+            kanji_vocab_state[nt_id] = {
                 "furigana_field": _combo_value(widgets["furigana_combo"]),
                 "base_templates": _checked_items(widgets["base_templates_model"]),
                 "kanji_templates": _checked_items(widgets["kanji_templates_model"]),
@@ -702,9 +764,9 @@ def open_settings_dialog() -> None:
         kanji_vocab_widgets.clear()
 
         selected_types = _checked_items(kanji_vocab_note_type_model)
-        for nt_name in selected_types:
-            cfg = kanji_vocab_state.get(nt_name, {})
-            field_names = _get_fields_for_note_type(nt_name)
+        for nt_id in selected_types:
+            cfg = kanji_vocab_state.get(nt_id, {})
+            field_names = _get_fields_for_note_type(nt_id)
 
             vocab_furigana_combo = QComboBox()
             _populate_field_combo(
@@ -714,7 +776,7 @@ def open_settings_dialog() -> None:
             )
 
             template_names = sorted(
-                set(_get_template_names(nt_name))
+                set(_get_template_names(nt_id))
                 | set(cfg.get("base_templates", []) or [])
                 | set(cfg.get("kanji_templates", []) or [])
             )
@@ -732,7 +794,7 @@ def open_settings_dialog() -> None:
                 float(cfg.get("base_threshold", config.STABILITY_DEFAULT_THRESHOLD))
             )
 
-            group = QGroupBox(nt_name)
+            group = QGroupBox(_note_type_label(nt_id))
             group_form = QFormLayout()
             group_form.addRow("Vocab furigana field", vocab_furigana_combo)
             group_form.addRow("Vocab base templates (Grundform)", base_templates_combo)
@@ -741,7 +803,7 @@ def open_settings_dialog() -> None:
             group.setLayout(group_form)
 
             vocab_container_layout.addWidget(group)
-            kanji_vocab_widgets[nt_name] = {
+            kanji_vocab_widgets[nt_id] = {
                 "furigana_combo": vocab_furigana_combo,
                 "base_templates_model": base_templates_model,
                 "kanji_templates_model": kanji_templates_model,
@@ -813,15 +875,12 @@ def open_settings_dialog() -> None:
     )
     jlpt_form.addRow("Decks", jlpt_deck_combo)
 
-    note_type_names = sorted(
-        set(
-            _get_note_type_names()
-            + list((config.JLPT_TAGGER_NOTE_TYPES or []))
-            + list((config.FAMILY_NOTE_TYPES or {}).keys())
-        )
+    note_type_items = _merge_note_type_items(
+        _get_note_type_items(),
+        list((config.JLPT_TAGGER_NOTE_TYPES or [])) + list((config.FAMILY_NOTE_TYPES or {}).keys()),
     )
     jlpt_note_type_combo, jlpt_note_type_model = _make_checkable_combo(
-        note_type_names, list(config.JLPT_TAGGER_NOTE_TYPES or [])
+        note_type_items, list(config.JLPT_TAGGER_NOTE_TYPES or [])
     )
     jlpt_form.addRow("Note types", jlpt_note_type_combo)
 
@@ -859,9 +918,9 @@ def open_settings_dialog() -> None:
                 w.deleteLater()
 
     def _capture_fields_state() -> None:
-        for nt_name, widgets in note_type_fields_widgets.items():
+        for nt_id, widgets in note_type_fields_widgets.items():
             vocab_combo, reading_combo = widgets
-            fields_state[nt_name] = {
+            fields_state[nt_id] = {
                 "vocab_field": _combo_value(vocab_combo),
                 "reading_field": _combo_value(reading_combo),
             }
@@ -872,22 +931,22 @@ def open_settings_dialog() -> None:
         note_type_fields_widgets.clear()
 
         selected_types = _checked_items(jlpt_note_type_model)
-        for nt_name in selected_types:
-            field_names = _get_fields_for_note_type(nt_name)
-            cfg_fields = fields_state.get(nt_name, {})
+        for nt_id in selected_types:
+            field_names = _get_fields_for_note_type(nt_id)
+            cfg_fields = fields_state.get(nt_id, {})
             vocab_combo = QComboBox()
             reading_combo = QComboBox()
             _populate_field_combo(vocab_combo, field_names, cfg_fields.get("vocab_field", ""))
             _populate_field_combo(reading_combo, field_names, cfg_fields.get("reading_field", ""))
 
-            group = QGroupBox(nt_name)
+            group = QGroupBox(_note_type_label(nt_id))
             group_form = QFormLayout()
             group_form.addRow("Vocab field", vocab_combo)
             group_form.addRow("Reading field", reading_combo)
             group.setLayout(group_form)
 
             fields_container_layout.addWidget(group)
-            note_type_fields_widgets[nt_name] = (vocab_combo, reading_combo)
+            note_type_fields_widgets[nt_id] = (vocab_combo, reading_combo)
 
         fields_container_layout.addStretch(1)
 
@@ -926,11 +985,11 @@ def open_settings_dialog() -> None:
     )
     card_sorter_form.addRow("Exclude decks", card_sorter_exclude_decks_combo)
 
-    card_sorter_note_type_names = sorted(
-        set(_get_note_type_names() + list((config.CARD_SORTER_NOTE_TYPES or {}).keys()))
+    card_sorter_note_type_items = _merge_note_type_items(
+        _get_note_type_items(), list((config.CARD_SORTER_NOTE_TYPES or {}).keys())
     )
     card_sorter_note_type_combo, card_sorter_note_type_model = _make_checkable_combo(
-        card_sorter_note_type_names, list((config.CARD_SORTER_NOTE_TYPES or {}).keys())
+        card_sorter_note_type_items, list((config.CARD_SORTER_NOTE_TYPES or {}).keys())
     )
     card_sorter_form.addRow("Note types", card_sorter_note_type_combo)
 
@@ -956,7 +1015,7 @@ def open_settings_dialog() -> None:
     card_sorter_rules_layout.addWidget(card_sorter_rules_scroll)
 
     card_sorter_state: dict[str, dict[str, Any]] = {}
-    for nt_name, nt_cfg in (config.CARD_SORTER_NOTE_TYPES or {}).items():
+    for nt_id, nt_cfg in (config.CARD_SORTER_NOTE_TYPES or {}).items():
         if not isinstance(nt_cfg, dict):
             continue
         mode = str(nt_cfg.get("mode", "by_template")).strip() or "by_template"
@@ -969,7 +1028,7 @@ def open_settings_dialog() -> None:
                 val = str(v).strip()
                 if key:
                     by_template[key] = val
-        card_sorter_state[nt_name] = {
+        card_sorter_state[str(nt_id)] = {
             "mode": mode,
             "default_deck": default_deck,
             "by_template": by_template,
@@ -978,7 +1037,7 @@ def open_settings_dialog() -> None:
     card_sorter_note_type_widgets: dict[str, dict[str, Any]] = {}
 
     def _capture_card_sorter_state() -> None:
-        for nt_name, widgets in card_sorter_note_type_widgets.items():
+        for nt_id, widgets in card_sorter_note_type_widgets.items():
             mode_combo = widgets["mode_combo"]
             default_deck_combo = widgets["default_deck_combo"]
             template_combos = widgets["template_combos"]
@@ -989,7 +1048,7 @@ def open_settings_dialog() -> None:
                 deck_name = _combo_value(combo)
                 if deck_name:
                     by_template[tmpl_name] = deck_name
-            card_sorter_state[nt_name] = {
+            card_sorter_state[nt_id] = {
                 "mode": mode,
                 "default_deck": default_deck,
                 "by_template": by_template,
@@ -1008,13 +1067,13 @@ def open_settings_dialog() -> None:
         card_sorter_note_type_widgets.clear()
 
         selected_types = _checked_items(card_sorter_note_type_model)
-        for nt_name in selected_types:
-            cfg = card_sorter_state.get(nt_name)
+        for nt_id in selected_types:
+            cfg = card_sorter_state.get(nt_id)
             if not cfg:
                 cfg = {"mode": "by_template", "default_deck": "", "by_template": {}}
-                card_sorter_state[nt_name] = cfg
+                card_sorter_state[nt_id] = cfg
 
-            group = QGroupBox(nt_name)
+            group = QGroupBox(_note_type_label(nt_id))
             group_layout = QVBoxLayout()
             group.setLayout(group_layout)
 
@@ -1042,7 +1101,7 @@ def open_settings_dialog() -> None:
             by_template = cfg.get("by_template", {}) or {}
             if not isinstance(by_template, dict):
                 by_template = {}
-            template_names = sorted(set(_get_template_names(nt_name)) | set(by_template.keys()))
+            template_names = sorted(set(_get_template_names(nt_id)) | set(by_template.keys()))
             template_combos: dict[str, QComboBox] = {}
             for tmpl_name in template_names:
                 deck_combo = QComboBox()
@@ -1059,7 +1118,7 @@ def open_settings_dialog() -> None:
             _toggle_template_group(0)
 
             card_sorter_rules_container_layout.addWidget(group)
-            card_sorter_note_type_widgets[nt_name] = {
+            card_sorter_note_type_widgets[nt_id] = {
                 "mode_combo": mode_combo,
                 "default_deck_combo": default_deck_combo,
                 "template_combos": template_combos,
@@ -1071,6 +1130,148 @@ def open_settings_dialog() -> None:
     card_sorter_note_type_model.itemChanged.connect(lambda _item: _refresh_card_sorter_rules())
 
     tabs.addTab(card_sorter_tab, "Card Sorter")
+
+    note_linker_tab = QWidget()
+    note_linker_layout = QVBoxLayout()
+    note_linker_tab.setLayout(note_linker_layout)
+    note_linker_form = QFormLayout()
+    note_linker_layout.addLayout(note_linker_form)
+
+    note_linker_enabled_cb = QCheckBox()
+    note_linker_enabled_cb.setChecked(config.NOTE_LINKER_ENABLED)
+    note_linker_form.addRow("Auto links enabled", note_linker_enabled_cb)
+
+
+    note_linker_note_type_items = _merge_note_type_items(
+        _get_note_type_items(), list((config.NOTE_LINKER_RULES or {}).keys())
+    )
+    note_linker_note_type_combo, note_linker_note_type_model = _make_checkable_combo(
+        note_linker_note_type_items, list((config.NOTE_LINKER_RULES or {}).keys())
+    )
+    note_linker_form.addRow("Note types", note_linker_note_type_combo)
+
+    note_linker_rules_group = QGroupBox("Rules per note type")
+    note_linker_rules_layout = QVBoxLayout()
+    note_linker_rules_group.setLayout(note_linker_rules_layout)
+    note_linker_layout.addWidget(note_linker_rules_group)
+
+    note_linker_rules_scroll = QScrollArea()
+    note_linker_rules_scroll.setWidgetResizable(True)
+    note_linker_rules_container = QWidget()
+    note_linker_rules_container_layout = QVBoxLayout()
+    note_linker_rules_container.setLayout(note_linker_rules_container_layout)
+    note_linker_rules_scroll.setWidget(note_linker_rules_container)
+    note_linker_rules_layout.addWidget(note_linker_rules_scroll)
+
+    note_linker_state: dict[str, dict[str, Any]] = {}
+    for nt_id, nt_cfg in (config.NOTE_LINKER_RULES or {}).items():
+        if isinstance(nt_cfg, dict):
+            note_linker_state[str(nt_id)] = {
+                "target_field": str(nt_cfg.get("target_field", "")).strip(),
+                "templates": [str(x) for x in (nt_cfg.get("templates") or [])],
+                "side": str(nt_cfg.get("side", "both")).lower().strip() or "both",
+                "tag": str(nt_cfg.get("tag", "")).strip(),
+                "label_field": str(nt_cfg.get("label_field", "")).strip(),
+            }
+
+    note_linker_note_type_widgets: dict[str, dict[str, Any]] = {}
+
+    def _capture_note_linker_state() -> None:
+        for nt_id, widgets in note_linker_note_type_widgets.items():
+            note_linker_state[nt_id] = {
+                "target_field": _combo_value(widgets["target_field_combo"]),
+                "templates": _checked_items(widgets["templates_model"]),
+                "side": _combo_value(widgets["side_combo"]),
+                "tag": widgets["tag_edit"].text().strip(),
+                "label_field": _combo_value(widgets["label_field_combo"]),
+            }
+
+    def _clear_note_linker_layout() -> None:
+        while note_linker_rules_container_layout.count():
+            item = note_linker_rules_container_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+    def _refresh_note_linker_rules() -> None:
+        _capture_note_linker_state()
+        _clear_note_linker_layout()
+        note_linker_note_type_widgets.clear()
+
+        selected_types = _checked_items(note_linker_note_type_model)
+        for nt_id in selected_types:
+            cfg = note_linker_state.get(nt_id)
+            if not cfg:
+                cfg = {
+                    "target_field": "",
+                    "templates": [],
+                    "side": "both",
+                    "tag": "",
+                    "label_field": "",
+                }
+                note_linker_state[nt_id] = cfg
+
+            group = QGroupBox(_note_type_label(nt_id))
+            group_layout = QVBoxLayout()
+            group.setLayout(group_layout)
+
+            form = QFormLayout()
+            group_layout.addLayout(form)
+
+            field_names = list(_get_fields_for_note_type(nt_id))
+            for extra in (cfg.get("target_field", ""), cfg.get("label_field", "")):
+                if extra and extra not in field_names:
+                    field_names.append(extra)
+            field_names = sorted(set(field_names))
+
+            target_field_combo = QComboBox()
+            _populate_field_combo(target_field_combo, field_names, cfg.get("target_field", ""))
+            form.addRow("Target field", target_field_combo)
+
+            label_field_combo = QComboBox()
+            _populate_field_combo(label_field_combo, field_names, cfg.get("label_field", ""))
+            form.addRow("Label field", label_field_combo)
+
+            template_names = sorted(
+                set(_get_template_names(nt_id)) | set(cfg.get("templates", []) or [])
+            )
+            templates_combo, templates_model = _make_checkable_combo(
+                template_names, list(cfg.get("templates", []) or [])
+            )
+            form.addRow("Templates", templates_combo)
+
+            side_combo = QComboBox()
+            side_combo.addItem("Front", "front")
+            side_combo.addItem("Back", "back")
+            side_combo.addItem("Both", "both")
+            side_val = str(cfg.get("side", "both")).lower().strip()
+            side_idx = side_combo.findData(side_val)
+            if side_idx < 0:
+                side_idx = side_combo.findData("both")
+            if side_idx < 0:
+                side_idx = 0
+            side_combo.setCurrentIndex(side_idx)
+            form.addRow("Side", side_combo)
+
+            tag_edit = QLineEdit()
+            tag_edit.setText(str(cfg.get("tag", "") or ""))
+            form.addRow("Tag", tag_edit)
+
+            note_linker_rules_container_layout.addWidget(group)
+            note_linker_note_type_widgets[nt_id] = {
+                "target_field_combo": target_field_combo,
+                "label_field_combo": label_field_combo,
+                "templates_model": templates_model,
+                "side_combo": side_combo,
+                "tag_edit": tag_edit,
+            }
+
+        note_linker_rules_container_layout.addStretch(1)
+
+    _refresh_note_linker_rules()
+    note_linker_note_type_model.itemChanged.connect(lambda _item: _refresh_note_linker_rules())
+
+    tabs.addTab(note_linker_tab, "Auto NoteLinks")
 
     debug_tab = QWidget()
     debug_layout = QVBoxLayout()
@@ -1114,7 +1315,33 @@ def open_settings_dialog() -> None:
         "Note: This add-on was created with the help of generative AI."
     )
     info_header.setWordWrap(True)
-    info_layout.addWidget(info_header)
+
+    info_header_row = QHBoxLayout()
+    info_header_row.addWidget(info_header)
+    info_header_row.addStretch(1)
+
+    info_buttons = QVBoxLayout()
+
+    install_btn = QPushButton("Install Note Types")
+
+    def _on_install_notetypes() -> None:
+        menu.import_notetypes()
+        _sync_installer_buttons()
+
+    install_btn.clicked.connect(_on_install_notetypes)
+    info_buttons.addWidget(install_btn)
+
+    reset_btn = QPushButton("Reset Install Status")
+
+    def _on_reset_install_status() -> None:
+        menu.reset_notetypes_installed()
+        _sync_installer_buttons()
+
+    reset_btn.clicked.connect(_on_reset_install_status)
+    info_buttons.addWidget(reset_btn)
+
+    info_header_row.addLayout(info_buttons)
+    info_layout.addLayout(info_header_row)
 
     info_doc = QTextBrowser()
     doc_text = ""
@@ -1133,6 +1360,13 @@ def open_settings_dialog() -> None:
     info_layout.addWidget(info_doc)
 
     tabs.addTab(info_tab, "Info")
+
+    def _sync_installer_buttons() -> None:
+        has_pkg = bool(menu._notetypes_package_path())
+        install_btn.setEnabled(has_pkg and not config.NOTETYPES_INSTALLED)
+        install_btn.setVisible(not config.NOTETYPES_INSTALLED)
+
+    _sync_installer_buttons()
 
     buttons = QDialogButtonBox(
         QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -1205,8 +1439,8 @@ def open_settings_dialog() -> None:
                 if not kanji_radical_field:
                     errors.append("Kanji Gate: radical field missing.")
 
-        for nt_name in kanji_vocab_note_types:
-            cfg_state = kanji_vocab_state.get(nt_name, {})
+        for nt_id in kanji_vocab_note_types:
+            cfg_state = kanji_vocab_state.get(nt_id, {})
             furigana_field = str(cfg_state.get("furigana_field", "")).strip()
             base_templates = [
                 str(x).strip() for x in (cfg_state.get("base_templates") or []) if str(x).strip()
@@ -1218,7 +1452,7 @@ def open_settings_dialog() -> None:
                 cfg_state.get("base_threshold", config.STABILITY_DEFAULT_THRESHOLD)
             )
 
-            kanji_vocab_cfg[nt_name] = {
+            kanji_vocab_cfg[nt_id] = {
                 "furigana_field": furigana_field,
                 "base_templates": base_templates,
                 "kanji_templates": kanji_templates,
@@ -1227,30 +1461,40 @@ def open_settings_dialog() -> None:
 
             if kanji_enabled_cb.isChecked():
                 if not furigana_field:
-                    errors.append(f"Kanji Gate: vocab field missing for note type: {nt_name}")
+                    errors.append(
+                        f"Kanji Gate: vocab field missing for note type: {_note_type_label(nt_id)}"
+                    )
                 if not base_templates:
-                    errors.append(f"Kanji Gate: base templates missing for note type: {nt_name}")
+                    errors.append(
+                        f"Kanji Gate: base templates missing for note type: {_note_type_label(nt_id)}"
+                    )
                 if not kanji_templates:
-                    errors.append(f"Kanji Gate: kanjiform templates missing for note type: {nt_name}")
+                    errors.append(
+                        f"Kanji Gate: kanjiform templates missing for note type: {_note_type_label(nt_id)}"
+                    )
 
         _capture_family_state()
         family_note_types = _checked_items(family_note_type_model)
         family_note_types_cfg: dict[str, Any] = {}
-        for nt_name in family_note_types:
-            stages = family_state.get(nt_name, [])
+        for nt_id in family_note_types:
+            stages = family_state.get(nt_id, [])
             if not stages:
-                errors.append(f"Family Gate: no stages defined for note type: {nt_name}")
+                errors.append(
+                    f"Family Gate: no stages defined for note type: {_note_type_label(nt_id)}"
+                )
                 continue
             stage_cfgs: list[dict[str, Any]] = []
             for s_idx, st in enumerate(stages):
                 tmpls = [str(x) for x in (st.get("templates") or []) if str(x)]
                 if not tmpls:
-                    errors.append(f"Family Gate: stage {s_idx} has no templates ({nt_name})")
+                    errors.append(
+                        f"Family Gate: stage {s_idx} has no templates ({_note_type_label(nt_id)})"
+                    )
                     continue
                 thr = float(st.get("threshold", config.STABILITY_DEFAULT_THRESHOLD))
                 stage_cfgs.append({"templates": tmpls, "threshold": thr})
             if stage_cfgs:
-                family_note_types_cfg[nt_name] = {"stages": stage_cfgs}
+                family_note_types_cfg[nt_id] = {"stages": stage_cfgs}
 
         watch_nids, bad_tokens = _parse_watch_nids(watch_nids_edit.toPlainText())
         if bad_tokens:
@@ -1261,14 +1505,16 @@ def open_settings_dialog() -> None:
         jlpt_note_types = _checked_items(jlpt_note_type_model)
         jlpt_fields: dict[str, dict[str, str]] = dict(fields_state)
 
-        for nt_name in jlpt_note_types:
-            cfg_fields = jlpt_fields.get(nt_name, {})
+        for nt_id in jlpt_note_types:
+            cfg_fields = jlpt_fields.get(nt_id, {})
             vocab_field = str(cfg_fields.get("vocab_field", "")).strip()
             reading_field = str(cfg_fields.get("reading_field", "")).strip()
             if not vocab_field or not reading_field:
-                errors.append(f"JLPT fields missing for note type: {nt_name}")
+                errors.append(
+                    f"JLPT fields missing for note type: {_note_type_label(nt_id)}"
+                )
             else:
-                jlpt_fields[nt_name] = {
+                jlpt_fields[nt_id] = {
                     "vocab_field": vocab_field,
                     "reading_field": reading_field,
                 }
@@ -1289,8 +1535,8 @@ def open_settings_dialog() -> None:
         _capture_card_sorter_state()
         card_sorter_note_types = _checked_items(card_sorter_note_type_model)
         card_sorter_cfg: dict[str, Any] = {}
-        for nt_name in card_sorter_note_types:
-            cfg_state = card_sorter_state.get(nt_name, {})
+        for nt_id in card_sorter_note_types:
+            cfg_state = card_sorter_state.get(nt_id, {})
             mode = str(cfg_state.get("mode", "by_template")).strip() or "by_template"
             default_deck = str(cfg_state.get("default_deck", "")).strip()
             by_template_raw = cfg_state.get("by_template", {}) or {}
@@ -1304,20 +1550,65 @@ def open_settings_dialog() -> None:
 
             if mode == "all":
                 if not default_deck:
-                    errors.append(f"Card Sorter: default deck missing for note type: {nt_name}")
+                    errors.append(
+                        f"Card Sorter: default deck missing for note type: {_note_type_label(nt_id)}"
+                    )
                     continue
-                card_sorter_cfg[nt_name] = {"mode": "all", "default_deck": default_deck}
+                card_sorter_cfg[nt_id] = {"mode": "all", "default_deck": default_deck}
             else:
                 if not by_template:
-                    errors.append(f"Card Sorter: no template mapping for note type: {nt_name}")
+                    errors.append(
+                        f"Card Sorter: no template mapping for note type: {_note_type_label(nt_id)}"
+                    )
                     continue
                 payload = {"mode": "by_template", "by_template": by_template}
                 if default_deck:
                     payload["default_deck"] = default_deck
-                card_sorter_cfg[nt_name] = payload
+                card_sorter_cfg[nt_id] = payload
 
         card_sorter_exclude_decks = _checked_items(card_sorter_exclude_decks_model)
         card_sorter_exclude_tags = _parse_list_entries(card_sorter_exclude_tags_edit.toPlainText())
+
+        _capture_note_linker_state()
+        note_linker_note_types = _checked_items(note_linker_note_type_model)
+        note_linker_rules_cfg: dict[str, Any] = {}
+        for nt_id in note_linker_note_types:
+            cfg_state = note_linker_state.get(nt_id, {})
+            target_field = str(cfg_state.get("target_field", "")).strip()
+            templates = [
+                str(x).strip() for x in (cfg_state.get("templates") or []) if str(x).strip()
+            ]
+            side = str(cfg_state.get("side", "both")).lower().strip() or "both"
+            tag = str(cfg_state.get("tag", "")).strip()
+            label_field = str(cfg_state.get("label_field", "")).strip()
+
+            if note_linker_enabled_cb.isChecked():
+                if not target_field:
+                    errors.append(
+                        f"Note Linker: target field missing for note type: {_note_type_label(nt_id)}"
+                    )
+                if not tag:
+                    errors.append(
+                        f"Note Linker: tag missing for note type: {_note_type_label(nt_id)}"
+                    )
+                if side not in ("front", "back", "both"):
+                    errors.append(
+                        f"Note Linker: side invalid for note type: {_note_type_label(nt_id)}"
+                    )
+
+            payload: dict[str, Any] = {}
+            if target_field:
+                payload["target_field"] = target_field
+            if templates:
+                payload["templates"] = templates
+            if side:
+                payload["side"] = side
+            if tag:
+                payload["tag"] = tag
+            if label_field:
+                payload["label_field"] = label_field
+            if payload:
+                note_linker_rules_cfg[nt_id] = payload
 
         if errors:
             showInfo("Config not saved:\n" + "\n".join(errors))
@@ -1369,6 +1660,9 @@ def open_settings_dialog() -> None:
         config._cfg_set(cfg, "card_sorter.exclude_decks", card_sorter_exclude_decks)
         config._cfg_set(cfg, "card_sorter.exclude_tags", card_sorter_exclude_tags)
         config._cfg_set(cfg, "card_sorter.note_types", card_sorter_cfg)
+
+        config._cfg_set(cfg, "note_linker.enabled", bool(note_linker_enabled_cb.isChecked()))
+        config._cfg_set(cfg, "note_linker.rules", note_linker_rules_cfg)
 
         config._cfg_set(cfg, "debug.enabled", bool(debug_enabled_cb.isChecked()))
         config._cfg_set(cfg, "debug.verify_suspension", bool(debug_verify_cb.isChecked()))

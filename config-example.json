@@ -11,6 +11,9 @@
     "default_threshold": 14.0,
     "aggregation": "min"
   },
+  "installer": {
+    "notetypes_installed": false
+  },
   "family_gate": {
     "enabled": true,
     "family": {
@@ -78,5 +81,9 @@
     "exclude_decks": [],
     "exclude_tags": [],
     "note_types": {}
+  },
+  "note_linker": {
+    "enabled": true,
+    "rules": {}
   }
-} 
+}
