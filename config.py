@@ -15,6 +15,9 @@ RUN_ON_UI = True
 STICKY_UNLOCK = True
 STABILITY_DEFAULT_THRESHOLD = 2.5
 STABILITY_AGG = "min"
+NOTETYPES_INSTALLED = False
+NOTE_LINKER_ENABLED = True
+NOTE_LINKER_RULES = {}
 
 FAMILY_GATE_ENABLED = True
 FAMILY_FIELD = "FamilyID"
@@ -108,7 +111,8 @@ def _cfg_set(cfg: dict[str, Any], path: str, value: Any) -> None:
 def reload_config() -> None:
     global CFG, DEBUG, DEBUG_VERIFY_SUSPENSION
     global RUN_ON_SYNC, RUN_ON_UI
-    global STICKY_UNLOCK, STABILITY_DEFAULT_THRESHOLD, STABILITY_AGG
+    global STICKY_UNLOCK, STABILITY_DEFAULT_THRESHOLD, STABILITY_AGG, NOTETYPES_INSTALLED
+    global NOTE_LINKER_ENABLED, NOTE_LINKER_RULES
     global FAMILY_GATE_ENABLED, FAMILY_FIELD, FAMILY_SEP, FAMILY_DEFAULT_PRIO, FAMILY_NOTE_TYPES
     global EXAMPLE_GATE_ENABLED, VOCAB_DECK, EXAMPLE_DECK, VOCAB_KEY_FIELD, EXAMPLE_KEY_FIELD
     global EX_STAGE_SEP, EX_STAGE_DEFAULT, EX_APPLY_ALL_CARDS
@@ -147,6 +151,9 @@ def reload_config() -> None:
     STICKY_UNLOCK = bool(cfg_get("sticky_unlock", True))
     STABILITY_DEFAULT_THRESHOLD = float(cfg_get("stability.default_threshold", 2.5))
     STABILITY_AGG = str(cfg_get("stability.aggregation", "min")).lower().strip()
+    NOTETYPES_INSTALLED = bool(cfg_get("installer.notetypes_installed", False))
+    NOTE_LINKER_ENABLED = bool(cfg_get("note_linker.enabled", True))
+    NOTE_LINKER_RULES = cfg_get("note_linker.rules", {}) or {}
 
     FAMILY_GATE_ENABLED = bool(cfg_get("family_gate.enabled", True))
     FAMILY_FIELD = str(cfg_get("family_gate.family.field", "FamilyID"))
@@ -210,6 +217,64 @@ def reload_config() -> None:
     CARD_SORTER_EXCLUDE_DECKS = list(cfg_get("card_sorter.exclude_decks", []) or [])
     CARD_SORTER_EXCLUDE_TAGS = list(cfg_get("card_sorter.exclude_tags", []) or [])
     CARD_SORTER_NOTE_TYPES = cfg_get("card_sorter.note_types", {}) or {}
+
+    try:
+        from aqt import mw  # type: ignore
+    except Exception:
+        mw = None  # type: ignore
+
+    def _note_type_id_from_ident(col, ident: Any) -> str:
+        if ident is None:
+            return ""
+        s = str(ident).strip()
+        if not s:
+            return ""
+        if s.isdigit():
+            try:
+                mid = int(s)
+            except Exception:
+                return ""
+            return str(mid)
+        try:
+            model = col.models.by_name(s)
+        except Exception:
+            model = None
+        if not model:
+            return s
+        try:
+            return str(int(model.get("id")))
+        except Exception:
+            return s
+
+    def _map_dict_keys(col, raw: dict[str, Any]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for k, v in raw.items():
+            key = _note_type_id_from_ident(col, k)
+            if not key:
+                continue
+            out[key] = v
+        return out
+
+    def _map_list(col, raw: list[Any]) -> list[str]:
+        out: list[str] = []
+        for v in raw:
+            key = _note_type_id_from_ident(col, v)
+            if key:
+                out.append(key)
+        return out
+
+    if mw is not None and getattr(mw, "col", None):
+        col = mw.col
+        if col:
+            FAMILY_NOTE_TYPES = _map_dict_keys(col, FAMILY_NOTE_TYPES)
+            KANJI_GATE_VOCAB_NOTE_TYPES = _map_dict_keys(col, KANJI_GATE_VOCAB_NOTE_TYPES)
+            JLPT_TAGGER_FIELDS = _map_dict_keys(col, JLPT_TAGGER_FIELDS)
+            CARD_SORTER_NOTE_TYPES = _map_dict_keys(col, CARD_SORTER_NOTE_TYPES)
+            JLPT_TAGGER_NOTE_TYPES = _map_list(col, JLPT_TAGGER_NOTE_TYPES)
+            if KANJI_GATE_KANJI_NOTE_TYPE:
+                KANJI_GATE_KANJI_NOTE_TYPE = _note_type_id_from_ident(col, KANJI_GATE_KANJI_NOTE_TYPE)
+            if KANJI_GATE_RADICAL_NOTE_TYPE:
+                KANJI_GATE_RADICAL_NOTE_TYPE = _note_type_id_from_ident(col, KANJI_GATE_RADICAL_NOTE_TYPE)
 
 
 reload_config()

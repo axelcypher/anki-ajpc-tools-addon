@@ -165,10 +165,11 @@ def jlpt_tagger_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
             note = col.get_note(nid)
             model = col.models.get(note.mid)
             nt_name = str(model.get("name", ""))
-            if nt_name not in config.JLPT_TAGGER_NOTE_TYPES:
+            nt_id = str(note.mid)
+            if nt_id not in config.JLPT_TAGGER_NOTE_TYPES:
                 continue
 
-            fields_cfg = config.JLPT_TAGGER_FIELDS.get(nt_name, {}) or {}
+            fields_cfg = config.JLPT_TAGGER_FIELDS.get(nt_id, {}) or {}
             vocab_field = str(fields_cfg.get("vocab_field", "")).strip()
             reading_field = str(fields_cfg.get("reading_field", "")).strip()
             if not vocab_field or not reading_field:

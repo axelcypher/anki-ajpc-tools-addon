@@ -1,4 +1,4 @@
-# AJpC Add-on Documentation (Family Gate, Example Gate, Kanji Gate, JLPT Tagger, Card Sorter)
+# AJpC Add-on Documentation (Family Gate, Example Gate, Kanji Gate, JLPT Tagger, Card Sorter, Note Linker)
 
 ## What this add-on does
 
@@ -14,8 +14,13 @@ This add-on helps you control *when* Anki cards become available, so you can lea
    Looks up a word on Jisho, verifies it using the reading, and adds helpful tags (JLPT level + "common" where applicable).
 5. **Card Sorter**
    Moves cards into preconfigured decks based on note type and card template.
+6. **Note Linker & Auto Note Links**
+   Adds fallback note links if Anki Note Linker is missing and can auto-generate links based on tags.
 
 This add-on relies primarily on **FSRS** stability ratings, so you must use FSRS to use it!
+
+Note types are referenced internally by their **model ID** (not the visible name). The settings UI shows names,
+so you only need to care about IDs if you edit the JSON config manually.
 
 ---
 
@@ -225,18 +230,42 @@ It’s a rework of the original that didn’t work properly because of deprecate
 
 ---
 
+## Note Linker (ANL Fallback + Auto Links)
+
+### Goal
+
+Provide note links that work even without Anki Note Linker, and optionally generate link lists automatically.
+
+### How it works
+
+* If Anki Note Linker is **not installed or disabled**, AJpC converts `[label|nid1234567890123]` into:
+  * left-click = preview
+  * right-click = open editor
+* Auto links can be configured per note type:
+  * **Target field** to insert the links
+  * **Tag** to search for linked notes
+  * **Templates** to include (leave empty = all)
+  * **Side** (front/back/both)
+  * **Label field** (optional; defaults to first field)
+* Placement rule: auto links are inserted into the **parent element of the target field** in the card template.
+  * Example: `<div id="links-wrapper">{{LinkedNotes}}</div>` → links are injected into `#links-wrapper` even if the field is empty.
+
+---
+
 ## Usage
 
 In Anki you have an AJpC menu with:
 
-* **Run Family Gate**
-* **Run Example Gate**
-* **Run Kanji Gate**
-* **Run JLPT Tagger**
-* **Run Card Sorter**
+* **Run All** (runs all enabled modules)
+* **Run -> Run Family Gate**
+* **Run -> Run Example Gate**
+* **Run -> Run Kanji Gate**
+* **Run -> Run JLPT Tagger**
+* **Run -> Run Card Sorter**
 
-All settings are configured via the Add-on Settings UI.
+All settings are configured via the Add-on Settings UI:
 
+* **Settings -> Main Settings**
 
 Note: You should always ***back up your collection before using add-ons.*** While this add-on can’t delete cards, it uses tags for some functionality, 
 and ***misconfiguration could scramble up your decks!***
