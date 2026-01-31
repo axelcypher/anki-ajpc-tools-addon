@@ -89,6 +89,8 @@ def _ensure_registry() -> dict[str, list[dict]]:
     reg = getattr(mw, "_ajpc_menu_registry", None)
     if reg is None:
         reg = {
+            "top_internal": [],
+            "top_external": [],
             "run_internal": [],
             "run_external": [],
             "settings_internal": [],
@@ -143,6 +145,10 @@ def _get_run_items() -> list[dict]:
     reg = _ensure_registry()
     return reg.get("run_internal", []) + reg.get("run_external", [])
 
+def _get_top_items() -> list[dict]:
+    reg = _ensure_registry()
+    return reg.get("top_internal", []) + reg.get("top_external", [])
+
 
 def _get_settings_items() -> list[dict]:
     reg = _ensure_registry()
@@ -153,6 +159,8 @@ def refresh_menu_state() -> None:
     if mw is None:
         return
     reg = _ensure_registry()
+    for item in reg.get("top_internal", []) + reg.get("top_external", []):
+        _apply_item_state(item)
     for item in reg.get("run_internal", []) + reg.get("run_external", []):
         _apply_item_state(item)
     for item in reg.get("settings_internal", []) + reg.get("settings_external", []):
@@ -197,7 +205,12 @@ def register_external_action(
     if mw is None:
         return
     reg = _ensure_registry()
-    bucket = "run_external" if kind == "run" else "settings_external"
+    if kind == "top":
+        bucket = "top_external"
+    elif kind == "run":
+        bucket = "run_external"
+    else:
+        bucket = "settings_external"
     items = reg.get(bucket, [])
     for it in items:
         if it.get("label") == label and it.get("callback") == callback:
@@ -215,12 +228,8 @@ def register_external_action(
     )
     reg[bucket] = items
 
-    run_menu = getattr(mw, "_ajpc_run_menu", None)
-    settings_menu = getattr(mw, "_ajpc_settings_menu", None)
-    if run_menu is not None and settings_menu is not None:
-        mw._ajpc_run_actions = _rebuild_menu(run_menu, _get_run_items())
-        mw._ajpc_settings_actions = _rebuild_menu(settings_menu, _get_settings_items())
-        refresh_menu_state()
+    if getattr(mw, "_ajpc_main_menu", None) is not None:
+        install_menu(reg.get("run_internal", []), reg.get("settings_internal", []))
 
 
 def install_menu(
@@ -251,6 +260,16 @@ def install_menu(
     run_all_action.setEnabled(bool(config.RUN_ON_UI))
     menu.addAction(run_all_action)
     mw._ajpc_run_all_action = run_all_action
+
+    top_actions: list[QAction] = []
+    for item in _sorted_items(_get_top_items()):
+        action = QAction(item.get("label", ""), mw)
+        action.triggered.connect(item.get("callback"))
+        item["qaction"] = action
+        menu.addAction(action)
+        _apply_item_state(item)
+        top_actions.append(action)
+    mw._ajpc_top_actions = top_actions
 
     run_menu = QMenu("Run", mw)
     settings_menu = QMenu("Settings", mw)

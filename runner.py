@@ -6,7 +6,7 @@ from anki.collection import Collection, OpChanges
 from anki.errors import InvalidInput
 from aqt import mw
 from aqt.operations import CollectionOp
-from aqt.utils import showInfo, show_info
+from aqt.utils import showInfo, show_info, tooltip
 
 from . import config, logging
 from .card_sorter import sort_all as card_sorter_run_all
@@ -14,6 +14,20 @@ from .gates.example import example_gate_apply
 from .gates.family import family_gate_apply
 from .gates.kanji import kanji_gate_apply
 from .taggers.jlpt import jlpt_tagger_apply
+
+
+def _notify_info(msg: str, *, reason: str = "manual") -> None:
+    if reason == "sync":
+        tooltip(msg)
+    else:
+        show_info(msg)
+
+
+def _notify_error(msg: str, *, reason: str = "manual") -> None:
+    if reason == "sync":
+        tooltip(msg)
+    else:
+        showInfo(msg)
 
 
 def run_gate(
@@ -26,7 +40,7 @@ def run_gate(
     logging.dbg("reloaded config", "debug=", config.DEBUG, "run_on_sync=", config.RUN_ON_SYNC, "run_on_ui=", config.RUN_ON_UI)
 
     if not mw.col:
-        showInfo("No collection loaded.")
+        _notify_error("No collection loaded.", reason=reason)
         return
 
     if reason == "sync" and not config.RUN_ON_SYNC:
@@ -109,14 +123,14 @@ def run_gate(
         )
         if config.DEBUG:
             logging.dbg("RESULT", msg)
-        show_info(msg)
+        _notify_info(msg, reason=reason)
 
     def on_failure(err: Exception) -> None:
         tb = "".join(traceback.format_exception(type(err), err, err.__traceback__))
         if config.DEBUG:
             logging.dbg("FAILURE", repr(err))
             logging.dbg(tb)
-        showInfo("Gate run failed:\n" + tb)
+        _notify_error("Gate run failed:\n" + tb, reason=reason)
 
     CollectionOp(parent=mw, op=op).success(on_success).failure(on_failure).run_in_background()
 
@@ -134,7 +148,7 @@ def run_kanji_gate(*, reason: str = "manual") -> None:
     )
 
     if not mw.col:
-        showInfo("No collection loaded.")
+        _notify_error("No collection loaded.", reason=reason)
         return
 
     if reason == "sync" and not config.RUN_ON_SYNC:
@@ -204,14 +218,14 @@ def run_kanji_gate(*, reason: str = "manual") -> None:
         )
         if config.DEBUG:
             logging.dbg("RESULT", msg)
-        show_info(msg)
+        _notify_info(msg, reason=reason)
 
     def on_failure(err: Exception) -> None:
         tb = "".join(traceback.format_exception(type(err), err, err.__traceback__))
         if config.DEBUG:
             logging.dbg("FAILURE", repr(err))
             logging.dbg(tb)
-        showInfo("Kanji Gate failed:\n" + tb)
+        _notify_error("Kanji Gate failed:\n" + tb, reason=reason)
 
     CollectionOp(parent=mw, op=op).success(on_success).failure(on_failure).run_in_background()
 
@@ -229,7 +243,7 @@ def run_jlpt_tagger() -> None:
     )
 
     if not mw.col:
-        showInfo("No collection loaded.")
+        _notify_error("No collection loaded.", reason="manual")
         return
 
     if not config.RUN_ON_UI:
@@ -298,7 +312,7 @@ def run_jlpt_tagger() -> None:
         if config.DEBUG:
             logging.dbg("FAILURE", repr(err))
             logging.dbg(tb)
-        showInfo("JLPT Tagger failed:\n" + tb)
+        _notify_error("JLPT Tagger failed:\n" + tb, reason="manual")
 
     CollectionOp(parent=mw, op=op).success(on_success).failure(on_failure).run_in_background()
 
@@ -316,7 +330,7 @@ def run_card_sorter(*, reason: str = "manual") -> None:
     )
 
     if not mw.col:
-        showInfo("No collection loaded.")
+        _notify_error("No collection loaded.", reason=reason)
         return
 
     if reason == "manual" and not config.RUN_ON_UI:
@@ -330,7 +344,7 @@ def run_card_sorter(*, reason: str = "manual") -> None:
         if config.DEBUG:
             logging.dbg("CARD_SORTER_FAILURE", repr(err))
             logging.dbg(tb)
-        showInfo("Card Sorter failed:\n" + tb)
+        _notify_error("Card Sorter failed:\n" + tb, reason=reason)
         return
 
     if reason != "manual":
@@ -344,4 +358,4 @@ def run_card_sorter(*, reason: str = "manual") -> None:
     )
     if config.DEBUG:
         logging.dbg("CARD_SORTER_RESULT", msg)
-    show_info(msg)
+    _notify_info(msg, reason=reason)

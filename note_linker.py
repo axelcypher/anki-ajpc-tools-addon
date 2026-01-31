@@ -6,6 +6,7 @@ from typing import Any
 from anki.cards import Card
 from aqt import gui_hooks, mw
 from aqt.browser.previewer import Previewer
+from aqt.qt import QAction, QApplication
 from aqt.utils import tooltip
 
 from . import config, logging
@@ -183,6 +184,53 @@ def _label_for_note(note, label_field: str) -> str:
         return str(note.fields[0] or "")
     except Exception:
         return ""
+
+
+def _copy_note_link_for_browser(browser) -> None:
+    if mw is None or not getattr(mw, "col", None):
+        tooltip("No collection loaded")
+        return
+    nids: list[int] = []
+    try:
+        nids = list(browser.selectedNotes() or [])
+    except Exception:
+        nids = []
+    if not nids:
+        try:
+            card = getattr(browser, "card", None)
+            if card:
+                nids = [int(card.note().id)]
+        except Exception:
+            nids = []
+    if not nids:
+        tooltip("No note selected")
+        return
+    nid = int(nids[0])
+    try:
+        note = mw.col.get_note(nid)
+    except Exception:
+        tooltip("Note not found")
+        return
+
+    label_field = str(config.NOTE_LINKER_COPY_LABEL_FIELD or "").strip()
+    label = _label_for_note(note, label_field).strip()
+    label = label.replace("[", "\\[").replace("]", "\\]")
+    link = f"[{label}|nid{nid}]"
+    try:
+        QApplication.clipboard().setText(link)
+        tooltip("Copied note link")
+        _dbg("browser copy", nid, "label_field", label_field)
+    except Exception:
+        tooltip("Failed to copy note link")
+
+
+def _browser_context_menu(browser, menu, *_args) -> None:
+    try:
+        action = QAction("Copy current note link and label", menu)
+        action.triggered.connect(lambda: _copy_note_link_for_browser(browser))
+        menu.addAction(action)
+    except Exception:
+        return
 
 
 def _links_for_tag(tag: str, label_field: str) -> list[str]:
@@ -468,6 +516,7 @@ def install_note_linker() -> None:
         hooks.append(_inject_auto_links)
     hooks.append(_postprocess_links)
     gui_hooks.webview_did_receive_js_message.append(_handle_pycmd)
+    gui_hooks.browser_will_show_context_menu.append(_browser_context_menu)
     mw._ajpc_note_linker_installed = True
     _dbg("installed hooks")
 

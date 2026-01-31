@@ -203,6 +203,22 @@ def _get_template_names(note_type_id: str) -> list[str]:
     return out
 
 
+def _get_all_field_names() -> list[str]:
+    if mw is None or not getattr(mw, "col", None):
+        return []
+    out: set[str] = set()
+    for model in mw.col.models.all():
+        fields = model.get("flds", []) if isinstance(model, dict) else []
+        for f in fields:
+            if isinstance(f, dict):
+                name = f.get("name")
+            else:
+                name = getattr(f, "name", None)
+            if name:
+                out.add(str(name))
+    return sorted(out)
+
+
 def _populate_field_combo(combo: QComboBox, field_names: list[str], current_value: str) -> None:
     combo.setEditable(True)
     combo.addItem("", "")
@@ -1141,6 +1157,13 @@ def open_settings_dialog() -> None:
     note_linker_enabled_cb.setChecked(config.NOTE_LINKER_ENABLED)
     note_linker_form.addRow("Auto links enabled", note_linker_enabled_cb)
 
+    copy_label_field_combo = QComboBox()
+    all_fields = _get_all_field_names()
+    cur_copy_label = str(config.NOTE_LINKER_COPY_LABEL_FIELD or "").strip()
+    if cur_copy_label and cur_copy_label not in all_fields:
+        all_fields.append(cur_copy_label)
+    _populate_field_combo(copy_label_field_combo, all_fields, cur_copy_label)
+    note_linker_form.addRow("Copy label field", copy_label_field_combo)
 
     note_linker_note_type_items = _merge_note_type_items(
         _get_note_type_items(), list((config.NOTE_LINKER_RULES or {}).keys())
@@ -1662,6 +1685,11 @@ def open_settings_dialog() -> None:
         config._cfg_set(cfg, "card_sorter.note_types", card_sorter_cfg)
 
         config._cfg_set(cfg, "note_linker.enabled", bool(note_linker_enabled_cb.isChecked()))
+        config._cfg_set(
+            cfg,
+            "note_linker.copy_label_field",
+            str(_combo_value(copy_label_field_combo) or "").strip(),
+        )
         config._cfg_set(cfg, "note_linker.rules", note_linker_rules_cfg)
 
         config._cfg_set(cfg, "debug.enabled", bool(debug_enabled_cb.isChecked()))
