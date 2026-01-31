@@ -84,6 +84,7 @@
   },
   "note_linker": {
     "enabled": true,
+    "copy_label_field": "",
     "rules": {}
   }
 }

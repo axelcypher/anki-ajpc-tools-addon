@@ -6,6 +6,7 @@ from . import config, logging
 from .card_sorter import sort_note as card_sorter_sort_note
 from .runner import run_card_sorter, run_gate, run_jlpt_tagger, run_kanji_gate
 from .note_linker import install_note_linker
+from . import graph_api
 from .ui import menu
 from .ui.settings import open_settings_dialog
 from .version import __version__
@@ -96,6 +97,15 @@ if mw is not None and not getattr(mw, "_ajpc_card_sorter_hooks_installed", False
 
 install_note_linker()
 
+def _install_graph_api() -> None:
+    if mw is None:
+        return
+    mw._ajpc_graph_api = {
+        "get_config": graph_api.get_graph_config,
+        "version": __version__,
+    }
+
+
 menu.install_menu(
     run_items=[
         {"label": "Run Family Gate", "callback": on_menu_trigger_family_only, "enabled_fn": _enabled_family, "order": 10},
@@ -109,3 +119,6 @@ menu.install_menu(
         {"label": "Settings", "callback": on_menu_trigger_settings, "order": 20},
     ],
 )
+
+_install_graph_api()
+gui_hooks.profile_did_open.append(lambda *_args, **_kw: _install_graph_api())

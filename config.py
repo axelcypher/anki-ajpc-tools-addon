@@ -18,6 +18,7 @@ STABILITY_AGG = "min"
 NOTETYPES_INSTALLED = False
 NOTE_LINKER_ENABLED = True
 NOTE_LINKER_RULES = {}
+NOTE_LINKER_COPY_LABEL_FIELD = ""
 
 FAMILY_GATE_ENABLED = True
 FAMILY_FIELD = "FamilyID"
@@ -112,7 +113,7 @@ def reload_config() -> None:
     global CFG, DEBUG, DEBUG_VERIFY_SUSPENSION
     global RUN_ON_SYNC, RUN_ON_UI
     global STICKY_UNLOCK, STABILITY_DEFAULT_THRESHOLD, STABILITY_AGG, NOTETYPES_INSTALLED
-    global NOTE_LINKER_ENABLED, NOTE_LINKER_RULES
+    global NOTE_LINKER_ENABLED, NOTE_LINKER_RULES, NOTE_LINKER_COPY_LABEL_FIELD
     global FAMILY_GATE_ENABLED, FAMILY_FIELD, FAMILY_SEP, FAMILY_DEFAULT_PRIO, FAMILY_NOTE_TYPES
     global EXAMPLE_GATE_ENABLED, VOCAB_DECK, EXAMPLE_DECK, VOCAB_KEY_FIELD, EXAMPLE_KEY_FIELD
     global EX_STAGE_SEP, EX_STAGE_DEFAULT, EX_APPLY_ALL_CARDS
@@ -154,6 +155,7 @@ def reload_config() -> None:
     NOTETYPES_INSTALLED = bool(cfg_get("installer.notetypes_installed", False))
     NOTE_LINKER_ENABLED = bool(cfg_get("note_linker.enabled", True))
     NOTE_LINKER_RULES = cfg_get("note_linker.rules", {}) or {}
+    NOTE_LINKER_COPY_LABEL_FIELD = str(cfg_get("note_linker.copy_label_field", "")).strip()
 
     FAMILY_GATE_ENABLED = bool(cfg_get("family_gate.enabled", True))
     FAMILY_FIELD = str(cfg_get("family_gate.family.field", "FamilyID"))
