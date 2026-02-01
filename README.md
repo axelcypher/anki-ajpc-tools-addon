@@ -19,6 +19,8 @@ This add-on helps you control *when* Anki cards become available, so you can lea
 
 This add-on relies primarily on **FSRS** stability ratings, so you must use FSRS to use it!
 
+I recommend using it with its companion add-on: [anki-ajpc-family-graph-addon](https://github.com/axelcypher/anki-ajpc-family-graph-addon). It adds a nice, force-graph-based GUI for connecting notes and editing relationships between them. (I highly recommend it, because I may have overengineered this add-on to the point where even I can’t fully comprehend what connects to what without proper visualization.)
+
 Note types are referenced internally by their **model ID** (not the visible name). The settings UI shows names,
 so you only need to care about IDs if you edit the JSON config manually.
 
