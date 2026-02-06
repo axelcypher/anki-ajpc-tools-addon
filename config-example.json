@@ -16,6 +16,8 @@
   },
   "family_gate": {
     "enabled": true,
+    "link_family_member": false,
+    "link_css_selector": "",
     "family": {
       "field": "FamilyID",
       "separator": ";",
@@ -58,20 +60,6 @@
     "kanji_threshold": 14.0,
     "component_threshold": 14.0,
     "vocab_note_types": {}
-  },
-  "jlpt_tagger": {
-    "decks": [],
-    "note_types": [],
-    "note_type_fields": {},
-    "tag_map": {
-      "jlpt-n5": "JLPT::N5",
-      "jlpt-n4": "JLPT::N4",
-      "jlpt-n3": "JLPT::N3",
-      "jlpt-n2": "JLPT::N2",
-      "jlpt-n1": "JLPT::N1",
-      "jlpt-none": "JLPT::None",
-      "common": "common"
-    }
   },
   "card_sorter": {
     "enabled": true,

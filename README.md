@@ -1,4 +1,4 @@
-# AJpC Add-on Documentation (Family Gate, Example Gate, Kanji Gate, JLPT Tagger, Card Sorter, Note Linker)
+﻿# AJpC Add-on Documentation (Family Gate, Example Gate, Kanji Gate, Card Sorter, Mass Linker)
 
 ## What this add-on does
 
@@ -10,16 +10,14 @@ This add-on helps you control *when* Anki cards become available, so you can lea
    Unlocks example sentence cards only after the related vocabulary is ready.
 3. **Kanji Gate**
    Unlocks kanji/components based on vocab thresholds and behavior mode.
-4. **JLPT Tagger**
-   Looks up a word on Jisho, verifies it using the reading, and adds helpful tags (JLPT level + "common" where applicable).
-5. **Card Sorter**
+4. **Card Sorter**
    Moves cards into preconfigured decks based on note type and card template.
-6. **Note Linker & Auto Note Links**
+5. **Mass Linker & Auto Links**
    Adds fallback note links if Anki Note Linker is missing and can auto-generate links based on tags.
 
 This add-on relies primarily on **FSRS** stability ratings, so you must use FSRS to use it!
 
-I recommend using it with its companion add-on: [anki-ajpc-family-graph-addon](https://github.com/axelcypher/anki-ajpc-family-graph-addon). It adds a nice, force-graph-based GUI for connecting notes and editing relationships between them. (I highly recommend it, because I may have overengineered this add-on to the point where even I can’t fully comprehend what connects to what without proper visualization.)
+I recommend using it with its companion add-on: [anki-ajpc-family-graph-addon](https://github.com/axelcypher/anki-ajpc-family-graph-addon). It adds a nice, force-graph-based GUI for connecting notes and editing relationships between them. (I highly recommend it, because I may have overengineered this add-on to the point where even I canâ€™t fully comprehend what connects to what without proper visualization.)
 
 Note types are referenced internally by their **model ID** (not the visible name). The settings UI shows names,
 so you only need to care about IDs if you edit the JSON config manually.
@@ -29,16 +27,16 @@ so you only need to care about IDs if you edit the JSON config manually.
 ## Why?
 
 As you can probably guess, I created this add-on mainly to study Japanese. 
-However, **you can use it with any learning material you want** (except for the JLPT Tagger, obviously).
+However, **you can use it with any learning material you want**.
 
-Although some of this add-on’s functionality is heavily inspired by other add-ons **(JLPT Tagger & Card Sorter)**, those add-ons 
-caused issues for me. Also, they used plain JSON for their configs, which I strongly dislike — especially if you’re not familiar 
-with formats like JSON. Lastly, **I couldn’t find any add-on that provides the gate functionality** (more on that below). 
+Although some of this add-onâ€™s functionality is heavily inspired by other add-ons **(Card Sorter)**, those add-ons 
+caused issues for me. Also, they used plain JSON for their configs, which I strongly dislike â€” especially if youâ€™re not familiar 
+with formats like JSON. Lastly, **I couldnâ€™t find any add-on that provides the gate functionality** (more on that below). 
 
 So the only viable conclusion was: *to write my own version!*
 
 I may extend the functionality over time. ~~Also, if you want to use it for Japanese, I suggest you check out my note templates,~~ 
-~~which I built the gate logic around.~~ (Coming soon — I need to test them a bit more to make sure everything works correctly)
+~~which I built the gate logic around.~~ (Coming soon â€” I need to test them a bit more to make sure everything works correctly)
 
 ---
 
@@ -174,34 +172,6 @@ Tip: use a dedicated base template if you want a clean, explicit unlock trigger.
 
 ---
 
-## JLPT Tagger
-
-### Goal
-
-Automatically tag your vocab with:
-
-* JLPT level (N5-N1 where available)
-* "common" if Jisho marks it as common
-* a fallback tag if no JLPT level exists
-
-### How it works
-
-1. The add-on reads the word from your **Vocab** field.
-2. It searches Jisho for that term.
-3. It compares the reading from Anki to the reading from Jisho.
-4. Only if it matches, tags are applied.
-
-### Tag rules
-
-* If multiple JLPT levels appear, the lowest level (easiest) is chosen.
-* If no JLPT level exists, it applies your configured "no JLPT" tag.
-* Adds "common" if the entry is marked common.
-
-Credit: [https://ankiweb.net/shared/info/368576817](https://ankiweb.net/shared/info/368576817) - I got the idea for the tagger from this add-on. 
-Since it doesn’t work reliably with the current Anki version, I implemented my own.
-
----
-
 ## Card Sorter
 
 ### Goal
@@ -228,15 +198,15 @@ Note type: **JP Vocab**
 Result: each card goes to the exact deck you want without manual dragging.
 
 Credit: [https://ankiweb.net/shared/info/1310787152](https://ankiweb.net/shared/info/1310787152) - The Card Sorter feature is based on this add-on.
-It’s a rework of the original that didn’t work properly because of deprecated code and edge-case issues.
+Itâ€™s a rework of the original that didnâ€™t work properly because of deprecated code and edge-case issues.
 
 ---
 
-## Note Linker (ANL Fallback + Auto Links)
+## Mass Linker (ANL Fallback + Auto Links)
 
 ### Goal
 
-Provide note links that work even without Anki Note Linker, and optionally generate link lists automatically.
+Mass Linker provides note links that work even without Anki Note Linker, and can optionally generate link lists automatically.
 
 ### How it works
 
@@ -250,7 +220,7 @@ Provide note links that work even without Anki Note Linker, and optionally gener
   * **Side** (front/back/both)
   * **Label field** (optional; defaults to first field)
 * Placement rule: auto links are inserted into the **parent element of the target field** in the card template.
-  * Example: `<div id="links-wrapper">{{LinkedNotes}}</div>` → links are injected into `#links-wrapper` even if the field is empty.
+  * Example: `<div id="links-wrapper">{{LinkedNotes}}</div>` â†’ links are injected into `#links-wrapper` even if the field is empty.
 
 ---
 
@@ -262,12 +232,11 @@ In Anki you have an AJpC menu with:
 * **Run -> Run Family Gate**
 * **Run -> Run Example Gate**
 * **Run -> Run Kanji Gate**
-* **Run -> Run JLPT Tagger**
 * **Run -> Run Card Sorter**
 
 All settings are configured via the Add-on Settings UI:
 
 * **Settings -> Main Settings**
 
-Note: You should always ***back up your collection before using add-ons.*** While this add-on can’t delete cards, it uses tags for some functionality, 
+Note: You should always ***back up your collection before using add-ons.*** While this add-on canâ€™t delete cards, it uses tags for some functionality, 
 and ***misconfiguration could scramble up your decks!***
