@@ -9,7 +9,7 @@ from typing import Any, Callable, Literal
 from anki.cards import Card
 from aqt import gui_hooks, mw
 from aqt.browser.previewer import Previewer
-from aqt.qt import QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QSpinBox, QVBoxLayout, QWidget, QSizePolicy
+from aqt.qt import QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QSpinBox, QVBoxLayout, QWidget
 from aqt.utils import tooltip
 
 from . import ModuleSpec
@@ -543,11 +543,10 @@ def _populate_field_combo(combo: QComboBox, field_names: list[str], current_valu
             combo.setCurrentIndex(idx)
 
 
-def _info_box(text: str) -> QLabel:
+def _tip_label(text: str, tip: str) -> QLabel:
     label = QLabel(text)
-    label.setWordWrap(True)
-    label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-    label.setStyleSheet("padding: 6px; border: 1px solid #999; border-radius: 4px;")
+    label.setToolTip(tip)
+    label.setWhatsThis(tip)
     return label
 
 
@@ -566,36 +565,43 @@ def _build_settings(ctx):
     if cur and cur not in fields:
         fields.append(cur)
     _populate_field_combo(injection_combo, sorted(set(fields)), cur)
-    form.addRow("Injection field", injection_combo)
+    form.addRow(
+        _tip_label(
+            "Injection field",
+            "Field where provider raw links are inserted before rendering.",
+        ),
+        injection_combo,
+    )
 
     popup_width_spin = QSpinBox()
     popup_width_spin.setRange(640, 3840)
     popup_width_spin.setSuffix(" px")
     popup_width_spin.setValue(int(LINK_CORE_EDITOR_INITIAL_WIDTH))
-    form.addRow("Popup editor width", popup_width_spin)
+    form.addRow(
+        _tip_label("Popup editor width", "Initial AJpC Note Editor popup width."),
+        popup_width_spin,
+    )
 
     popup_height_spin = QSpinBox()
     popup_height_spin.setRange(480, 2160)
     popup_height_spin.setSuffix(" px")
     popup_height_spin.setValue(int(LINK_CORE_EDITOR_INITIAL_HEIGHT))
-    form.addRow("Popup editor height", popup_height_spin)
+    form.addRow(
+        _tip_label("Popup editor height", "Initial AJpC Note Editor popup height."),
+        popup_height_spin,
+    )
 
     sidebar_ratio_spin = QDoubleSpinBox()
     sidebar_ratio_spin.setRange(10.0, 60.0)
     sidebar_ratio_spin.setDecimals(1)
     sidebar_ratio_spin.setSuffix(" %")
     sidebar_ratio_spin.setValue(float(LINK_CORE_EDITOR_SIDEBAR_RATIO) * 100.0)
-    form.addRow("Popup sidebar ratio", sidebar_ratio_spin)
+    form.addRow(
+        _tip_label("Popup sidebar ratio", "Width share of the right graph sidebar in the popup editor."),
+        sidebar_ratio_spin,
+    )
 
     layout.addStretch(1)
-    layout.addWidget(
-        _info_box(
-            "Injection field: field where provider raw links are inserted before rendering.\n"
-            "This field must exist on every note type that should display auto links.\n"
-            "Popup editor width/height: initial window size for AJpC Note Editor.\n"
-            "Popup sidebar ratio: width share of the right graph sidebar."
-        )
-    )
 
     ctx.add_tab(tab, "Link Core")
 

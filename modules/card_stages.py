@@ -26,7 +26,6 @@ from aqt.qt import (
     Qt,
     QVBoxLayout,
     QWidget,
-    QSizePolicy,
 )
 from aqt.utils import tooltip
 
@@ -709,11 +708,10 @@ def run_card_stages(*, reason: str = "manual") -> None:
     CollectionOp(parent=mw, op=op).success(on_success).failure(on_failure).run_in_background()
 
 
-def _info_box(text: str) -> QLabel:
+def _tip_label(text: str, tip: str) -> QLabel:
     label = QLabel(text)
-    label.setWordWrap(True)
-    label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-    label.setStyleSheet("padding: 6px; border: 1px solid #999; border-radius: 4px;")
+    label.setToolTip(tip)
+    label.setWhatsThis(tip)
     return label
 
 
@@ -732,11 +730,17 @@ def _build_settings(ctx):
 
     enabled_cb = QCheckBox()
     enabled_cb.setChecked(config.CARD_STAGES_ENABLED)
-    general_form.addRow("Enabled", enabled_cb)
+    general_form.addRow(
+        _tip_label("Enabled", "Enable or disable Card Stages."),
+        enabled_cb,
+    )
 
     run_on_sync_cb = QCheckBox()
     run_on_sync_cb.setChecked(config.CARD_STAGES_RUN_ON_SYNC)
-    general_form.addRow("Run on sync", run_on_sync_cb)
+    general_form.addRow(
+        _tip_label("Run on sync", "Run Card Stages automatically at sync start."),
+        run_on_sync_cb,
+    )
 
     note_type_items = _merge_note_type_items(
         _get_note_type_items(), list((config.CARD_STAGES_NOTE_TYPES or {}).keys())
@@ -744,17 +748,11 @@ def _build_settings(ctx):
     note_type_combo, note_type_model = _make_checkable_combo(
         note_type_items, list((config.CARD_STAGES_NOTE_TYPES or {}).keys())
     )
-    general_form.addRow("Note types", note_type_combo)
-    general_layout.addStretch(1)
-    general_layout.addWidget(
-        _info_box(
-            "Run on sync: runs stage checks automatically at sync start.\n"
-            "Note types: only selected note types are processed.\n"
-            "Stages unlocks cards within the same note in sequence.\n"
-            "Stage 0 is evaluated first; later stages require previous stage readiness.\n"
-            "FSRS is required for this feature, as the stability ranking determines when to progress to the next stage."
-        )
+    general_form.addRow(
+        _tip_label("Note types", "Only selected note types are processed by Card Stages."),
+        note_type_combo,
     )
+    general_layout.addStretch(1)
     tabs.addTab(general_tab, "General")
 
     stages_tab = QWidget()
@@ -765,14 +763,6 @@ def _build_settings(ctx):
     stage_tabs = QTabWidget()
     stages_layout.addWidget(stage_tabs)
     stages_layout.addStretch(1)
-    stages_layout.addWidget(
-        _info_box(
-            "Each stage has:\n"
-            "- Templates: templates (by card ord) belonging to this stage.\n"
-            "- Threshold (days): required stability for stage readiness.\n"
-            "A card is unlocked only when all prerequisites for its stage are satisfied."
-        )
-    )
     tabs.addTab(stages_tab, "Stages")
 
     state: dict[str, list[dict[str, Any]]] = {}
@@ -868,14 +858,20 @@ def _build_settings(ctx):
                 templates_combo, templates_model = _make_checkable_combo(
                     template_items, list(st.get("templates", []) or [])
                 )
-                form.addRow("Templates", templates_combo)
+                form.addRow(
+                    _tip_label("Templates", "Templates (card ords) that belong to this stage."),
+                    templates_combo,
+                )
 
                 threshold_spin = QDoubleSpinBox()
                 threshold_spin.setDecimals(2)
                 threshold_spin.setRange(0, 100000)
                 threshold_spin.setSuffix(" days")
                 threshold_spin.setValue(float(st.get("threshold", config.STABILITY_DEFAULT_THRESHOLD)))
-                form.addRow("Threshold", threshold_spin)
+                form.addRow(
+                    _tip_label("Threshold", "Required FSRS stability before the next stage can unlock."),
+                    threshold_spin,
+                )
 
                 remove_btn = QPushButton("Remove stage")
                 remove_btn.clicked.connect(lambda _=None, n=nt_id, i=idx: _remove_stage(n, i))

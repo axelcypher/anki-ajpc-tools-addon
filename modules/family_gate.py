@@ -26,7 +26,6 @@ from aqt.qt import (
     Qt,
     QVBoxLayout,
     QWidget,
-    QSizePolicy,
 )
 from aqt.utils import tooltip
 
@@ -1018,11 +1017,10 @@ def run_family_gate(*, reason: str = "manual") -> None:
     CollectionOp(parent=mw, op=op).success(on_success).failure(on_failure).run_in_background()
 
 
-def _info_box(text: str) -> QLabel:
+def _tip_label(text: str, tip: str) -> QLabel:
     label = QLabel(text)
-    label.setWordWrap(True)
-    label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-    label.setStyleSheet("padding: 6px; border: 1px solid #999; border-radius: 4px;")
+    label.setToolTip(tip)
+    label.setWhatsThis(tip)
     return label
 
 
@@ -1035,15 +1033,24 @@ def _build_settings(ctx):
 
     family_enabled_cb = QCheckBox()
     family_enabled_cb.setChecked(config.FAMILY_GATE_ENABLED)
-    family_form.addRow("Enabled", family_enabled_cb)
+    family_form.addRow(
+        _tip_label("Enabled", "Enable or disable Family Priority."),
+        family_enabled_cb,
+    )
 
     family_run_on_sync_cb = QCheckBox()
     family_run_on_sync_cb.setChecked(config.FAMILY_RUN_ON_SYNC)
-    family_form.addRow("Run on sync", family_run_on_sync_cb)
+    family_form.addRow(
+        _tip_label("Run on sync", "Run Family Priority automatically at sync start."),
+        family_run_on_sync_cb,
+    )
 
     family_link_cb = QCheckBox()
     family_link_cb.setChecked(config.FAMILY_LINK_ENABLED)
-    family_form.addRow("Link family member", family_link_cb)
+    family_form.addRow(
+        _tip_label("Link family member", "Generate family raw links for Link Core rendering."),
+        family_link_cb,
+    )
 
     separator = QFrame()
     separator.setFrameShape(QFrame.Shape.HLine)
@@ -1053,16 +1060,25 @@ def _build_settings(ctx):
 
     family_field_edit = QLineEdit()
     family_field_edit.setText(config.FAMILY_FIELD)
-    family_form.addRow("Family field", family_field_edit)
+    family_form.addRow(
+        _tip_label("Family field", "Field containing entries like FamilyID@prio."),
+        family_field_edit,
+    )
 
     family_sep_edit = QLineEdit()
     family_sep_edit.setText(config.FAMILY_SEP)
-    family_form.addRow("Family separator", family_sep_edit)
+    family_form.addRow(
+        _tip_label("Family separator", "Separator between multiple family entries in the field."),
+        family_sep_edit,
+    )
 
     family_prio_spin = QSpinBox()
     family_prio_spin.setRange(-10000, 10000)
     family_prio_spin.setValue(config.FAMILY_DEFAULT_PRIO)
-    family_form.addRow("Default prio", family_prio_spin)
+    family_form.addRow(
+        _tip_label("Default prio", "Priority used when '@prio' is omitted."),
+        family_prio_spin,
+    )
 
     family_note_type_items = _merge_note_type_items(
         _get_note_type_items(), list((config.FAMILY_NOTE_TYPES or {}).keys())
@@ -1070,18 +1086,11 @@ def _build_settings(ctx):
     family_note_type_combo, family_note_type_model = _make_checkable_combo(
         family_note_type_items, list((config.FAMILY_NOTE_TYPES or {}).keys())
     )
-    family_form.addRow("Note types", family_note_type_combo)
-    family_layout.addStretch(1)
-    family_layout.addWidget(
-        _info_box(
-            "Run on sync: runs the gate automatically at sync start.\n"
-            "Link family member: generates family links for Link Core rendering.\n"
-            "Family field: field containing entries like FamilyID@prio.\n"
-            "Family separator: separator between multiple family entries in the field.\n"
-            "Default prio: used when '@prio' is omitted.\n"
-            "Note types: only these note types participate in family unlock checks."
-        )
+    family_form.addRow(
+        _tip_label("Note types", "Only selected note types participate in family unlock checks."),
+        family_note_type_combo,
     )
+    family_layout.addStretch(1)
 
     ctx.add_tab(family_tab, "Family Priority")
 

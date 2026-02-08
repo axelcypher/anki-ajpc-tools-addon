@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from aqt import gui_hooks, mw
 
+from . import _vendor_loader
 from . import config, logging
 from .api import graph_api, note_editor_api, settings_api
 from .modules import discover_modules, iter_run_items, iter_settings_items
@@ -42,6 +43,7 @@ config.migrate_legacy_keys()
 config.migrate_note_type_names_to_ids()
 config.migrate_template_names_to_ords()
 config.reload_config()
+_vendor_paths = _vendor_loader.install_vendor_paths(config.ADDON_DIR)
 _install_addons_dialog_config_guard()
 logging.dbg(
     "loaded config",
@@ -51,6 +53,8 @@ logging.dbg(
     config.RUN_ON_SYNC,
     "run_on_ui=",
     config.RUN_ON_UI,
+    "vendor_paths=",
+    _vendor_paths,
     source="__init__",
 )
 

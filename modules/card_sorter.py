@@ -23,7 +23,6 @@ from aqt.qt import (
     Qt,
     QVBoxLayout,
     QWidget,
-    QSizePolicy,
 )
 from aqt.utils import askUser, tooltip
 
@@ -418,11 +417,10 @@ def _normalize_list(items: list[Any]) -> list[str]:
     return out
 
 
-def _info_box(text: str) -> QLabel:
+def _tip_label(text: str, tip: str) -> QLabel:
     label = QLabel(text)
-    label.setWordWrap(True)
-    label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-    label.setStyleSheet("padding: 6px; border: 1px solid #999; border-radius: 4px;")
+    label.setToolTip(tip)
+    label.setWhatsThis(tip)
     return label
 
 
@@ -765,15 +763,24 @@ def _build_settings(ctx):
 
     card_sorter_enabled_cb = QCheckBox()
     card_sorter_enabled_cb.setChecked(config.CARD_SORTER_ENABLED)
-    card_sorter_form.addRow("Enabled", card_sorter_enabled_cb)
+    card_sorter_form.addRow(
+        _tip_label("Enabled", "Enable or disable Card Sorter."),
+        card_sorter_enabled_cb,
+    )
 
     card_sorter_run_on_sync_cb = QCheckBox()
     card_sorter_run_on_sync_cb.setChecked(config.CARD_SORTER_RUN_ON_SYNC)
-    card_sorter_form.addRow("Run on sync", card_sorter_run_on_sync_cb)
+    card_sorter_form.addRow(
+        _tip_label("Run on sync", "Run Card Sorter automatically at sync start."),
+        card_sorter_run_on_sync_cb,
+    )
 
     card_sorter_run_on_add_cb = QCheckBox()
     card_sorter_run_on_add_cb.setChecked(config.CARD_SORTER_RUN_ON_ADD)
-    card_sorter_form.addRow("Run on add note", card_sorter_run_on_add_cb)
+    card_sorter_form.addRow(
+        _tip_label("Run on add note", "Run Card Sorter automatically when a new note is added."),
+        card_sorter_run_on_add_cb,
+    )
 
     separator = QFrame()
     separator.setFrameShape(QFrame.Shape.HLine)
@@ -787,7 +794,10 @@ def _build_settings(ctx):
     card_sorter_note_type_combo, card_sorter_note_type_model = _make_checkable_combo(
         card_sorter_note_type_items, list((config.CARD_SORTER_NOTE_TYPES or {}).keys())
     )
-    card_sorter_form.addRow("Note types", card_sorter_note_type_combo)
+    card_sorter_form.addRow(
+        _tip_label("Note types", "Only selected note types are processed by Card Sorter."),
+        card_sorter_note_type_combo,
+    )
 
     card_sorter_exclude_deck_names = sorted(
         set(deck_names + list(config.CARD_SORTER_EXCLUDE_DECKS or []))
@@ -795,26 +805,23 @@ def _build_settings(ctx):
     card_sorter_exclude_decks_combo, card_sorter_exclude_decks_model = _make_checkable_combo(
         card_sorter_exclude_deck_names, list(config.CARD_SORTER_EXCLUDE_DECKS or [])
     )
-    card_sorter_form.addRow("Exclude decks", card_sorter_exclude_decks_combo)
+    card_sorter_form.addRow(
+        _tip_label("Exclude decks", "Cards currently in these decks are never moved."),
+        card_sorter_exclude_decks_combo,
+    )
 
-    card_sorter_exclude_tags_label = QLabel("Exclude tags (one per line or comma-separated)")
+    card_sorter_exclude_tags_label = _tip_label(
+        "Exclude tags (one per line or comma-separated)",
+        "Notes with any listed tag are skipped.",
+    )
     card_sorter_exclude_tags_edit = QPlainTextEdit()
     if config.CARD_SORTER_EXCLUDE_TAGS:
         card_sorter_exclude_tags_edit.setPlainText("\n".join(config.CARD_SORTER_EXCLUDE_TAGS))
     card_sorter_exclude_tags_edit.setMaximumHeight(60)
+    card_sorter_exclude_tags_edit.setToolTip("Notes with any listed tag are skipped.")
     general_layout.addWidget(card_sorter_exclude_tags_label)
     general_layout.addWidget(card_sorter_exclude_tags_edit)
     general_layout.addStretch(1)
-    general_layout.addWidget(
-        _info_box(
-            "Enabled: turns Card Sorter on/off.\n"
-            "Run on sync: runs sorter automatically at sync start.\n"
-            "Note types: only these note types are processed.\n"
-            "Exclude decks: cards in these decks are never moved.\n"
-            "Exclude tags: notes with any listed tag are skipped.\n"
-            "Rules are configured per selected note type in the Rules tab."
-        )
-    )
 
     card_sorter_tabs.addTab(general_tab, "General")
 
@@ -906,14 +913,21 @@ def _build_settings(ctx):
             if mode_idx < 0:
                 mode_idx = 0
             mode_combo.setCurrentIndex(mode_idx)
-            form.addRow("Mode", mode_combo)
+            form.addRow(
+                _tip_label(
+                    "Mode",
+                    "sort by template: assign a deck per template; sort all in same deck: move all cards to one deck.",
+                ),
+                mode_combo,
+            )
 
-            default_deck_label = QLabel("Deck")
+            default_deck_label = _tip_label("Deck", "Used only when mode is 'sort all in same deck'.")
             default_deck_combo = QComboBox()
             _populate_deck_combo(default_deck_combo, deck_names, cfg.get("default_deck", ""))
             form.addRow(default_deck_label, default_deck_combo)
 
             template_group = QGroupBox("Templates")
+            template_group.setToolTip("Used only when mode is 'sort by template'.")
             template_layout = QFormLayout()
             template_group.setLayout(template_layout)
             template_combos: dict[str, QComboBox] = {}
@@ -947,16 +961,6 @@ def _build_settings(ctx):
             _toggle_template_group(0)
 
             tab_layout.addStretch(1)
-            tab_layout.addWidget(
-                _info_box(
-                    "Mode:\n"
-                    "- sort by template: assign target deck per template.\n"
-                    "- sort all in same deck: move all cards of the note to one deck.\n"
-                    "Deck: only used in 'sort all in same deck'.\n"
-                    "Templates: only used in 'sort by template'.\n"
-                    "Template IDs are saved by ord for stability."
-                )
-            )
             card_sorter_rule_tabs.addTab(tab, _note_type_label(nt_id))
             card_sorter_note_type_widgets[nt_id] = {
                 "mode_combo": mode_combo,

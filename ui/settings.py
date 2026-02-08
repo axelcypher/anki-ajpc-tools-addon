@@ -35,24 +35,24 @@ def open_settings_dialog() -> None:
     dlg.resize(760, 640)
 
     tabs = QTabWidget(dlg)
-    external_tabs = QTabWidget(dlg)
-    external_tabs.setVisible(False)
     ctx = SettingsContext(dlg=dlg, tabs=tabs, config=config)
-    external_ctx = SettingsContext(dlg=dlg, tabs=external_tabs, config=config)
+    external_ctx = SettingsContext(dlg=dlg, tabs=tabs, config=config)
 
     save_fns: list = []
     external_validators: list = []
     external_savers: list = []
+
     modules = discover_modules()
     for mod in modules:
-        if callable(mod.build_settings):
-            try:
-                save_fn = mod.build_settings(ctx)
-            except Exception as exc:
-                logging.error("settings: module build failed", mod.id, repr(exc), source="settings")
-                continue
-            if callable(save_fn):
-                save_fns.append(save_fn)
+        if not callable(mod.build_settings):
+            continue
+        try:
+            save_fn = mod.build_settings(ctx)
+        except Exception as exc:
+            logging.error("settings: module build failed", mod.id, repr(exc), source="settings")
+            continue
+        if callable(save_fn):
+            save_fns.append(save_fn)
 
     for provider in settings_api.list_providers():
         build_fn = provider.get("build_settings")
@@ -77,9 +77,6 @@ def open_settings_dialog() -> None:
             if callable(save_fn):
                 external_savers.append((pid, plabel, save_fn))
 
-    if external_tabs.count() > 0:
-        external_tabs.setVisible(True)
-
     buttons = QDialogButtonBox(
         QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
     )
@@ -90,7 +87,6 @@ def open_settings_dialog() -> None:
             cfg = {}
 
         errors: list[str] = []
-
         for save_fn in save_fns:
             try:
                 save_fn(cfg, errors)
@@ -137,9 +133,7 @@ def open_settings_dialog() -> None:
 
     layout = QVBoxLayout(dlg)
     layout.setSpacing(2)
-    layout.addWidget(tabs)
-    if external_tabs.isVisible():
-        layout.addWidget(external_tabs)
+    layout.addWidget(tabs, 1)
     layout.addWidget(buttons)
     dlg.setLayout(layout)
     dlg.exec()

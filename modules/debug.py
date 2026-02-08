@@ -15,6 +15,7 @@ from aqt.qt import (
     QLabel,
     QPlainTextEdit,
     QProcess,
+    QTimer,
     QVBoxLayout,
     QWidget,
 )
@@ -26,6 +27,7 @@ from ..ui.settings_common import _parse_watch_nids
 from . import ModuleSpec
 
 _RESTART_DELAY_SECONDS = 2
+_RESTART_MAX_WAIT_MS = 15000
 _LOG_LEVELS: list[tuple[str, str]] = [
     ("Trace", "trace"),
     ("Debug", "debug"),
@@ -152,7 +154,9 @@ def _restart_helper_cmd(target_cmd: list[str], delay_seconds: int) -> list[str]:
             "--delay-ms",
             str(max(0, int(delay_seconds * 1000))),
             "--max-wait-ms",
-            str(120000),
+            str(_RESTART_MAX_WAIT_MS),
+            "--launch-on-timeout",
+            "1",
         ]
     )
     for arg in target_cmd[1:]:
@@ -177,7 +181,9 @@ def _restart_helper_cmd_py_fallback(target_cmd: list[str], delay_seconds: int) -
             "--delay-ms",
             str(max(0, int(delay_seconds * 1000))),
             "--max-wait-ms",
-            str(120000),
+            str(_RESTART_MAX_WAIT_MS),
+            "--launch-on-timeout",
+            "1",
         ]
     )
     for arg in target_cmd[1:]:
@@ -255,14 +261,27 @@ def _delayed_restart_anki() -> None:
             )
             return
 
-        ok = False
+        close_ret = None
         try:
-            ok = bool(mw.close())
-        except Exception:
-            ok = True
-        logging.dbg("restart click: close requested, ok=", ok, source="debug")
-        if not ok:
-            return
+            close_ret = mw.close()
+        except Exception as exc:
+            logging.warn("restart click: mw.close raised", repr(exc), source="debug")
+        logging.dbg("restart click: close requested, ret=", repr(close_ret), source="debug")
+
+        # Some Anki/Qt builds may return False/None even though shutdown is in progress.
+        # Ask the app to quit shortly after close request to avoid getting stuck.
+        def _force_quit() -> None:
+            if mw is None:
+                return
+            try:
+                app = getattr(mw, "app", None)
+                if app is not None:
+                    app.quit()
+                    logging.dbg("restart click: app.quit requested", source="debug")
+            except Exception as exc:
+                logging.warn("restart click: app.quit failed", repr(exc), source="debug")
+
+        QTimer.singleShot(300, _force_quit)
     except Exception as exc:
         logging.error("restart click: exception", repr(exc), source="debug")
         showInfo("Restart failed:\n" + repr(exc))

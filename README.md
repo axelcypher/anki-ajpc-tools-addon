@@ -232,9 +232,37 @@ In Anki you have an AJpC menu with:
 All settings are configured via the Add-on Settings UI:
 
 * **Settings -> Main Settings**
+* Field explanations are available via **hover tooltips on labels**.
 
 Note: You should always ***back up your collection before using add-ons.*** While this add-on can't delete cards, it uses tags for some functionality, 
 and ***misconfiguration could scramble up your decks!***
+
+---
+
+## Development (Vendor Bootstrap)
+
+After cloning, install local vendor dependencies with:
+
+```bash
+make vendor
+```
+
+If `make` is not installed, use:
+
+```bash
+python scripts/bootstrap_vendor.py --target local
+```
+
+Other useful targets:
+
+```bash
+make vendor-check
+make vendor-all
+make vendor-clean
+```
+
+This creates platform-separated vendor folders used by runtime loading:
+`vendor/win`, `vendor/linux`, `vendor/macos_x86_64`, `vendor/macos_arm64`, `vendor/common`.
 
 ---
 

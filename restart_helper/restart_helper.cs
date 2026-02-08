@@ -14,6 +14,7 @@ namespace AjpcRestartHelper
             public string Target = "";
             public int DelayMs = 700;
             public int MaxWaitMs = 120000;
+            public bool LaunchOnTimeout;
             public readonly List<string> TargetArgs = new List<string>();
         }
 
@@ -29,7 +30,7 @@ namespace AjpcRestartHelper
                 return 1;
             }
 
-            if (!WaitForParentExit(args.ParentPid, args.MaxWaitMs))
+            if (!WaitForParentExit(args.ParentPid, args.MaxWaitMs) && !args.LaunchOnTimeout)
             {
                 return 2;
             }
@@ -71,6 +72,10 @@ namespace AjpcRestartHelper
                 else if (key == "--max-wait-ms" && i + 1 < argv.Length)
                 {
                     a.MaxWaitMs = Math.Max(0, int.Parse(argv[++i]));
+                }
+                else if (key == "--launch-on-timeout" && i + 1 < argv.Length)
+                {
+                    a.LaunchOnTimeout = int.Parse(argv[++i]) != 0;
                 }
                 else if (key == "--arg" && i + 1 < argv.Length)
                 {

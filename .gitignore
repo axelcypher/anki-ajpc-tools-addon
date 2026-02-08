@@ -4,7 +4,7 @@
 /dist/
 /.vscode/
 /.devdocs/
-/vendor/ 
+/vendor/
 
 *.pyc
 *.pyo

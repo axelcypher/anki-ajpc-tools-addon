@@ -26,7 +26,6 @@ from aqt.qt import (
     Qt,
     QVBoxLayout,
     QWidget,
-    QSizePolicy,
 )
 from aqt.utils import tooltip
 
@@ -1312,11 +1311,10 @@ def _make_checkable_combo(items: list[Any], selected: list[str]) -> tuple[QCombo
     return combo, model
 
 
-def _info_box(text: str) -> QLabel:
+def _tip_label(text: str, tip: str) -> QLabel:
     label = QLabel(text)
-    label.setWordWrap(True)
-    label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-    label.setStyleSheet("padding: 6px; border: 1px solid #999; border-radius: 4px;")
+    label.setToolTip(tip)
+    label.setWhatsThis(tip)
     return label
 
 
@@ -1335,11 +1333,17 @@ def _build_settings(ctx):
 
     kanji_enabled_cb = QCheckBox()
     kanji_enabled_cb.setChecked(config.KANJI_GATE_ENABLED)
-    kanji_form.addRow("Enabled", kanji_enabled_cb)
+    kanji_form.addRow(
+        _tip_label("Enabled", "Enable or disable Kanji Unlocker."),
+        kanji_enabled_cb,
+    )
 
     kanji_run_on_sync_cb = QCheckBox()
     kanji_run_on_sync_cb.setChecked(config.KANJI_GATE_RUN_ON_SYNC)
-    kanji_form.addRow("Run on sync", kanji_run_on_sync_cb)
+    kanji_form.addRow(
+        _tip_label("Run on sync", "Run Kanji Unlocker automatically at sync start."),
+        kanji_run_on_sync_cb,
+    )
 
     vocab_note_type_items = _merge_note_type_items(
         _get_note_type_items(), list((config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).keys())
@@ -1347,7 +1351,10 @@ def _build_settings(ctx):
     kanji_vocab_note_type_combo, kanji_vocab_note_type_model = _make_checkable_combo(
         vocab_note_type_items, list((config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).keys())
     )
-    kanji_form.addRow("Vocab note types", kanji_vocab_note_type_combo)
+    kanji_form.addRow(
+        _tip_label("Vocab note types", "Source note types that drive unlock progression."),
+        kanji_vocab_note_type_combo,
+    )
     notetype_separator = QFrame()
     notetype_separator.setFrameShape(QFrame.Shape.HLine)
     notetype_separator.setFrameShadow(QFrame.Shadow.Sunken)
@@ -1363,7 +1370,10 @@ def _build_settings(ctx):
     if behavior_idx < 0:
         behavior_idx = 0
     behavior_combo.setCurrentIndex(behavior_idx)
-    kanji_form.addRow("Behavior", behavior_combo)
+    kanji_form.addRow(
+        _tip_label("Behavior", "Unlock strategy between Kanji and Components."),
+        behavior_combo,
+    )
 
     kanji_note_type_items = _merge_note_type_items(
         _get_note_type_items(),
@@ -1374,7 +1384,10 @@ def _build_settings(ctx):
     _populate_note_type_combo(
         kanji_note_type_combo, kanji_note_type_items, config.KANJI_GATE_KANJI_NOTE_TYPE
     )
-    kanji_form.addRow("Kanji note type", kanji_note_type_combo)
+    kanji_form.addRow(
+        _tip_label("Kanji note type", "Target note type that contains Kanji entries."),
+        kanji_note_type_combo,
+    )
 
     kanji_fields_initial = list(config.KANJI_GATE_KANJI_FIELDS or [])
     if not kanji_fields_initial:
@@ -1387,9 +1400,15 @@ def _build_settings(ctx):
     kanji_fields_combo, kanji_fields_model = _make_checkable_combo(
         kanji_field_items, kanji_fields_initial
     )
-    kanji_form.addRow("Kanji fields", kanji_fields_combo)
+    kanji_form.addRow(
+        _tip_label("Kanji fields", "Fields on Kanji notes used to read Kanji values."),
+        kanji_fields_combo,
+    )
 
-    components_field_label = QLabel("Components field")
+    components_field_label = _tip_label(
+        "Components field",
+        "Field on Kanji note type that lists component Kanji.",
+    )
     kanji_components_field_combo = QComboBox()
     _populate_field_combo(
         kanji_components_field_combo,
@@ -1398,7 +1417,10 @@ def _build_settings(ctx):
     )
     kanji_form.addRow(components_field_label, kanji_components_field_combo)
 
-    kanji_radical_field_label = QLabel("Kanji radical field")
+    kanji_radical_field_label = _tip_label(
+        "Kanji radical field",
+        "Field on Kanji note type that stores radical references.",
+    )
     kanji_radical_field_combo = QComboBox()
     _populate_field_combo(
         kanji_radical_field_combo,
@@ -1413,14 +1435,20 @@ def _build_settings(ctx):
 
     kanji_form.addWidget(radical_separator)
 
-    radical_note_type_label = QLabel("Radical note type")
+    radical_note_type_label = _tip_label(
+        "Radical note type",
+        "Note type used for standalone radical notes.",
+    )
     radical_note_type_combo = QComboBox()
     _populate_note_type_combo(
         radical_note_type_combo, kanji_note_type_items, config.KANJI_GATE_RADICAL_NOTE_TYPE
     )
     kanji_form.addRow(radical_note_type_label, radical_note_type_combo)
 
-    radical_field_label = QLabel("Radical field")
+    radical_field_label = _tip_label(
+        "Radical field",
+        "Field on radical note type used to match radical keys.",
+    )
     radical_field_combo = QComboBox()
     _populate_field_combo(
         radical_field_combo,
@@ -1429,7 +1457,10 @@ def _build_settings(ctx):
     )
     kanji_form.addRow(radical_field_label, radical_field_combo)
 
-    kanji_threshold_label = QLabel("Kanji threshold")
+    kanji_threshold_label = _tip_label(
+        "Kanji threshold",
+        "Required FSRS stability before Kanji unlock checks pass.",
+    )
     kanji_threshold_spin = QDoubleSpinBox()
     kanji_threshold_spin.setDecimals(2)
     kanji_threshold_spin.setRange(0, 100000)
@@ -1437,16 +1468,6 @@ def _build_settings(ctx):
     kanji_threshold_spin.setValue(float(config.KANJI_GATE_KANJI_THRESHOLD))
     kanji_form.addRow(kanji_threshold_label, kanji_threshold_spin)
     general_layout.addStretch(1)
-    general_layout.addWidget(
-        _info_box(
-            "Run on sync: runs checks automatically at sync start.\n"
-            "Vocab note types: source notes that drive unlock progression.\n"
-            "Behavior: unlock strategy between Kanji and Components.\n"
-            "Kanji note type / Kanji fields: define which Kanji are targeted.\n"
-            "Components field / Kanji radical field / Radical note type / Radical field: configure component and radical dependencies.\n"
-            "Kanji threshold (days): FSRS stabillity rating required for Kanji unlock checks. (available on 'Kanji then Components')"
-        )
-    )
 
     kanji_tabs.addTab(general_tab, "General")
 
@@ -1460,15 +1481,6 @@ def _build_settings(ctx):
     kanji_vocab_tabs = QTabWidget()
     vocab_layout.addWidget(kanji_vocab_tabs)
     vocab_layout.addStretch(1)
-    vocab_layout.addWidget(
-        _info_box(
-            "Per vocab note type settings:\n"
-            "- Kanji reading: source field used for Kanji extraction.\n"
-            "- Base templates: prerequisite templates that must be mature first.\n"
-            "- Vocab kanjiform templates: templates unlocked by Kanji Unlocker.\n"
-            "- Base threshold (days): maturity threshold for base templates."
-        )
-    )
 
     kanji_tabs.addTab(vocab_tab, "Note Types")
 
@@ -1563,20 +1575,24 @@ def _build_settings(ctx):
             tab.setLayout(tab_layout)
 
             form = QFormLayout()
-            form.addRow("Kanji reading", vocab_reading_combo)
-            form.addRow("Base templates", base_templates_combo)
-            form.addRow("Vocab kanjiform templates", kanji_templates_combo)
-            form.addRow("Base threshold", base_threshold_spin)
+            form.addRow(
+                _tip_label("Kanji reading", "Field used for Kanji extraction on this vocab note type."),
+                vocab_reading_combo,
+            )
+            form.addRow(
+                _tip_label("Base templates", "Prerequisite templates that must be mature first."),
+                base_templates_combo,
+            )
+            form.addRow(
+                _tip_label("Vocab kanjiform templates", "Templates unlocked by Kanji Unlocker."),
+                kanji_templates_combo,
+            )
+            form.addRow(
+                _tip_label("Base threshold", "FSRS stability threshold for base templates."),
+                base_threshold_spin,
+            )
             tab_layout.addLayout(form)
             tab_layout.addStretch(1)
-            tab_layout.addWidget(
-                _info_box(
-                    "Kanji reading selects the field used for extracting Kanji tokens.\n"
-                    "Base templates are prerequisite cards.\n"
-                    "Vocab kanjiform templates are unlocked after prerequisites.\n"
-                    "Base threshold (days) is applied to base template stability."
-                )
-            )
 
             kanji_vocab_widgets[nt_id] = {
                 "reading_combo": vocab_reading_combo,

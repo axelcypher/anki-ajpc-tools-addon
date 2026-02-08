@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import sys
 import time
 import traceback
 import unicodedata
@@ -24,7 +23,6 @@ from aqt.qt import (
     QLineEdit,
     QVBoxLayout,
     QWidget,
-    QSizePolicy,
 )
 from aqt.utils import tooltip
 
@@ -33,9 +31,6 @@ from . import ModuleSpec
 
 ADDON_DIR = os.path.dirname(os.path.dirname(__file__))
 CONFIG_PATH = os.path.join(ADDON_DIR, "config.json")
-VENDOR_PATH = os.path.join(ADDON_DIR, "vendor")
-if os.path.isdir(VENDOR_PATH) and VENDOR_PATH not in sys.path:
-    sys.path.insert(0, VENDOR_PATH)
 
 CFG: dict[str, Any] = {}
 DEBUG = False
@@ -387,6 +382,7 @@ _MODEL_FORM_MARKER_CACHE: dict[int, dict[int, str | None]] = {}
 _CARD_RUNTIME_CACHE: dict[int, tuple[str, str] | None] = {}
 _FUGASHI_TAGGER = None
 _FUGASHI_READY = False
+_LEMMA_BACKEND_STATUS_LOGGED = False
 
 
 def _norm_form_key(s: str) -> str:
@@ -463,16 +459,54 @@ def _mapping_level(error_msg: str) -> str:
 
 
 def _fugashi_tagger():
-    global _FUGASHI_TAGGER, _FUGASHI_READY
+    global _FUGASHI_TAGGER, _FUGASHI_READY, _LEMMA_BACKEND_STATUS_LOGGED
     if _FUGASHI_READY:
         return _FUGASHI_TAGGER
     _FUGASHI_READY = True
+    fugashi_ok = False
+    fugashi_ver = ""
+    fugashi_err = ""
+    unidic_ok = False
+    unidic_dicdir = ""
+    unidic_err = ""
     try:
         import fugashi  # type: ignore
 
         _FUGASHI_TAGGER = fugashi.Tagger()
+        fugashi_ok = _FUGASHI_TAGGER is not None
+        fugashi_ver = str(getattr(fugashi, "__version__", "") or "")
     except Exception:
         _FUGASHI_TAGGER = None
+        fugashi_err = traceback.format_exc(limit=1).strip()
+    try:
+        import unidic_lite  # type: ignore
+
+        unidic_dicdir = str(getattr(unidic_lite, "DICDIR", "") or "")
+        unidic_ok = bool(unidic_dicdir) and os.path.isdir(unidic_dicdir)
+        if not unidic_ok and not unidic_dicdir:
+            unidic_ok = True
+    except Exception:
+        unidic_err = traceback.format_exc(limit=1).strip()
+
+    if not _LEMMA_BACKEND_STATUS_LOGGED:
+        _LEMMA_BACKEND_STATUS_LOGGED = True
+        if fugashi_ok and unidic_ok:
+            log_info(
+                "lemma_backend ready",
+                "fugashi=ok",
+                f"version={fugashi_ver or 'unknown'}",
+                "unidic=ok",
+                f"dicdir={unidic_dicdir or 'n/a'}",
+            )
+        else:
+            log_warn(
+                "lemma_backend degraded",
+                f"fugashi={'ok' if fugashi_ok else 'failed'}",
+                (f"fugashi_err={fugashi_err}" if fugashi_err else ""),
+                f"unidic={'ok' if unidic_ok else 'failed'}",
+                f"dicdir={unidic_dicdir or 'n/a'}",
+                (f"unidic_err={unidic_err}" if unidic_err else ""),
+            )
     return _FUGASHI_TAGGER
 
 
@@ -1145,11 +1179,10 @@ def run_example_gate(*, reason: str = "manual") -> None:
     CollectionOp(parent=mw, op=op).success(on_success).failure(on_failure).run_in_background()
 
 
-def _info_box(text: str) -> QLabel:
+def _tip_label(text: str, tip: str) -> QLabel:
     label = QLabel(text)
-    label.setWordWrap(True)
-    label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-    label.setStyleSheet("padding: 6px; border: 1px solid #999; border-radius: 4px;")
+    label.setToolTip(tip)
+    label.setWhatsThis(tip)
     return label
 
 
@@ -1164,11 +1197,17 @@ def _build_settings(ctx):
 
     example_enabled_cb = QCheckBox()
     example_enabled_cb.setChecked(config.EXAMPLE_GATE_ENABLED)
-    example_form.addRow("Enabled", example_enabled_cb)
+    example_form.addRow(
+        _tip_label("Enabled", "Enable or disable Example Unlocker."),
+        example_enabled_cb,
+    )
 
     example_run_on_sync_cb = QCheckBox()
     example_run_on_sync_cb.setChecked(config.EXAMPLE_GATE_RUN_ON_SYNC)
-    example_form.addRow("Run on sync", example_run_on_sync_cb)
+    example_form.addRow(
+        _tip_label("Run on sync", "Run Example Unlocker automatically at sync start."),
+        example_run_on_sync_cb,
+    )
 
     separator = QFrame()
     separator.setFrameShape(QFrame.Shape.HLine)
@@ -1178,33 +1217,39 @@ def _build_settings(ctx):
 
     vocab_deck_combo = QComboBox()
     _populate_deck_combo(vocab_deck_combo, deck_names, config.VOCAB_DECK)
-    example_form.addRow("Vocab deck", vocab_deck_combo)
+    example_form.addRow(
+        _tip_label("Vocab deck", "Deck containing source vocabulary notes."),
+        vocab_deck_combo,
+    )
 
     example_deck_combo = QComboBox()
     _populate_deck_combo(example_deck_combo, deck_names, config.EXAMPLE_DECK)
-    example_form.addRow("Example deck", example_deck_combo)
+    example_form.addRow(
+        _tip_label("Example deck", "Deck containing example sentence notes."),
+        example_deck_combo,
+    )
 
     key_field_edit = QLineEdit()
     key_field_edit.setText(config.EXAMPLE_KEY_FIELD)
-    example_form.addRow("Key field", key_field_edit)
+    example_form.addRow(
+        _tip_label(
+            "Key field",
+            "Field on vocab notes used as lemma key for exact vocab/example matching.",
+        ),
+        key_field_edit,
+    )
 
     example_threshold_spin = QDoubleSpinBox()
     example_threshold_spin.setDecimals(2)
     example_threshold_spin.setRange(0, 100000)
     example_threshold_spin.setSuffix(" days")
     example_threshold_spin.setValue(float(config.EXAMPLE_THRESHOLD))
-    example_form.addRow("Threshold", example_threshold_spin)
+    example_form.addRow(
+        _tip_label("Threshold", "Required FSRS stability before dependent cards unlock."),
+        example_threshold_spin,
+    )
 
     example_layout.addStretch(1)
-    example_layout.addWidget(
-        _info_box(
-            "Run on sync: runs the gate automatically at sync start.\n"
-            "Vocab deck / Example deck: source decks used for matching.\n"
-            "Key field: required on vocab notes; used as lemma key for exact vocab<->example matching (example side comes from cloze).\n"
-            "Threshold (days): required stability before dependent cards unlock.\n"
-            "Use the force_nid field on your example card for manual mapping."
-        )
-    )
 
     ctx.add_tab(example_tab, "Example Unlocker")
 

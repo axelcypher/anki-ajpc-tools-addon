@@ -21,7 +21,6 @@ from aqt.qt import (
     Qt,
     QVBoxLayout,
     QWidget,
-    QSizePolicy,
 )
 from aqt.utils import tooltip
 
@@ -440,11 +439,10 @@ def _combo_value(combo: QComboBox) -> str:
     return str(data).strip()
 
 
-def _info_box(text: str) -> QLabel:
+def _tip_label(text: str, tip: str) -> QLabel:
     label = QLabel(text)
-    label.setWordWrap(True)
-    label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-    label.setStyleSheet("padding: 6px; border: 1px solid #999; border-radius: 4px;")
+    label.setToolTip(tip)
+    label.setWhatsThis(tip)
     return label
 
 def _note_type_rules() -> dict[str, dict[str, Any]]:
@@ -646,7 +644,10 @@ def _build_settings(ctx):
 
     mass_linker_enabled_cb = QCheckBox()
     mass_linker_enabled_cb.setChecked(config.MASS_LINKER_ENABLED)
-    mass_linker_form.addRow("Enabled", mass_linker_enabled_cb)
+    mass_linker_form.addRow(
+        _tip_label("Enabled", "Enable or disable Mass Linker."),
+        mass_linker_enabled_cb,
+    )
 
     copy_label_field_combo = QComboBox()
     all_fields = _get_all_field_names()
@@ -654,7 +655,10 @@ def _build_settings(ctx):
     if cur_copy_label and cur_copy_label not in all_fields:
         all_fields.append(cur_copy_label)
     _populate_field_combo(copy_label_field_combo, all_fields, cur_copy_label)
-    mass_linker_form.addRow("Label field", copy_label_field_combo)
+    mass_linker_form.addRow(
+        _tip_label("Label field", "Default source field for generated link labels."),
+        copy_label_field_combo,
+    )
 
     mass_linker_note_type_items = _merge_note_type_items(
         _get_note_type_items(), list((config.MASS_LINKER_RULES or {}).keys())
@@ -662,18 +666,12 @@ def _build_settings(ctx):
     mass_linker_note_type_combo, mass_linker_note_type_model = _make_checkable_combo(
         mass_linker_note_type_items, list((config.MASS_LINKER_RULES or {}).keys())
     )
-    mass_linker_form.addRow("Note types", mass_linker_note_type_combo)
+    mass_linker_form.addRow(
+        _tip_label("Note types", "Only selected note types are processed by Mass Linker."),
+        mass_linker_note_type_combo,
+    )
 
     general_layout.addStretch(1)
-    general_layout.addWidget(
-        _info_box(
-            "Enabled: turns Mass Linker on/off.\n"
-            "Label field: default source field for generated link labels.\n"
-            "Note types: only selected note types are processed.\n"
-            "Mass Linker builds raw links from tag matches.\n"
-            "Link Core handles injection and final rendering on cards."
-        )
-    )
 
     mass_linker_tabs.addTab(general_tab, "General")
 
@@ -688,14 +686,6 @@ def _build_settings(ctx):
     rules_layout.addWidget(mass_linker_rule_tabs)
 
     rules_layout.addStretch(1)
-    rules_layout.addWidget(
-        _info_box(
-            "Rules are configured per note type.\n"
-            "Each rule defines: Label field, Templates, Side, and Tag.\n"
-            "Tag is the lookup key used to find matching notes.\n"
-            "Templates and Side restrict where links are generated."
-        )
-    )
 
     mass_linker_tabs.addTab(rules_tab, "Rules")
 
@@ -769,7 +759,10 @@ def _build_settings(ctx):
 
             label_field_combo = QComboBox()
             _populate_field_combo(label_field_combo, field_names, cfg.get("label_field", ""))
-            form.addRow("Label field", label_field_combo)
+            form.addRow(
+                _tip_label("Label field", "Field copied into the link label text."),
+                label_field_combo,
+            )
 
             template_items = _merge_template_items(
                 _get_template_items(nt_id), list(cfg.get("templates", []) or [])
@@ -777,7 +770,10 @@ def _build_settings(ctx):
             templates_combo, templates_model = _make_checkable_combo(
                 template_items, list(cfg.get("templates", []) or [])
             )
-            form.addRow("Templates", templates_combo)
+            form.addRow(
+                _tip_label("Templates", "Selected templates (card ords) where this rule applies."),
+                templates_combo,
+            )
 
             side_combo = QComboBox()
             side_combo.addItem("Front", "front")
@@ -790,21 +786,18 @@ def _build_settings(ctx):
             if side_idx < 0:
                 side_idx = 0
             side_combo.setCurrentIndex(side_idx)
-            form.addRow("Side", side_combo)
+            form.addRow(
+                _tip_label("Side", "Card side restriction for link generation (front/back/both)."),
+                side_combo,
+            )
 
             tag_edit = QLineEdit()
             tag_edit.setText(str(cfg.get("tag", "") or ""))
-            form.addRow("Tag", tag_edit)
-
-            tab_layout.addStretch(1)
-            tab_layout.addWidget(
-                _info_box(
-                    "Label field: field copied into the link label text.\n"
-                    "Templates: selected templates (ord) where this rule applies.\n"
-                    "Side: front/back/both card sides for generation.\n"
-                    "Tag: required; notes with this tag become link targets."
-                )
+            form.addRow(
+                _tip_label("Tag", "Notes with this tag become link targets for this rule."),
+                tag_edit,
             )
+            tab_layout.addStretch(1)
             mass_linker_rule_tabs.addTab(tab, _note_type_label(nt_id))
             mass_linker_note_type_widgets[nt_id] = {
                 "label_field_combo": label_field_combo,

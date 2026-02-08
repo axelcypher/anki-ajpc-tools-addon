@@ -45,9 +45,11 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--arg", action="append", default=[])
     ap.add_argument("--delay-ms", type=int, default=700)
     ap.add_argument("--max-wait-ms", type=int, default=120000)
+    ap.add_argument("--launch-on-timeout", type=int, default=0)
     ns = ap.parse_args(argv)
 
-    if not _wait_for_parent_exit(int(ns.parent_pid), int(ns.max_wait_ms)):
+    parent_exited = _wait_for_parent_exit(int(ns.parent_pid), int(ns.max_wait_ms))
+    if not parent_exited and not bool(int(ns.launch_on_timeout)):
         return 2
 
     if int(ns.delay_ms) > 0:
