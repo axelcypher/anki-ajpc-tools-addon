@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-_LINK_RE = re.compile(r"\[((?:[^\[]|\\\[)*?)\|nid(\d{13})\]")
+_LINK_RE = re.compile(r"\[((?:[^\[]|\\\[)*?)\|([A-Za-z][A-Za-z0-9_-]*)(\d+)\]")
 _ANL_LINK_RE = re.compile(
     r'(<a\b[^>]*\bclass=[\'"]noteLink[\'"][^>]*>)(.*?)(</a>)',
     re.IGNORECASE | re.DOTALL,
@@ -55,18 +55,21 @@ def existing_link_targets(html: str) -> tuple[set[int], set[int]]:
 def convert_links(html: str, *, use_anl: bool) -> tuple[str, int]:
     def repl(match: Any) -> str:
         label = match.group(1).replace("\\[", "[")
-        nid = match.group(2)
+        kind = str(match.group(2) or "").lower()
+        target = str(match.group(3) or "")
+        if kind != "nid":
+            return match.group(0)
         if use_anl:
             return (
                 f'<a class="noteLink" '
-                f'href=\'javascript:pycmd(`AnkiNoteLinker-openNoteInPreviewer`+`{nid}`)\' '
-                f'oncontextmenu=\'event.preventDefault();pycmd(`AnkiNoteLinker-openNoteInNewEditor`+`{nid}`)\'>'  # noqa: E501
+                f'href=\'javascript:pycmd(`AnkiNoteLinker-openNoteInPreviewer`+`{target}`)\' '
+                f'oncontextmenu=\'event.preventDefault();pycmd(`AnkiNoteLinker-openNoteInNewEditor`+`{target}`)\'>'  # noqa: E501
                 f'<div class="ajpc-note-link-text">{label}</div></a>'
             )
         return (
             f'<a class="ajpc-note-link" '
-            f'href=\'javascript:pycmd("AJPCNoteLinker-openPreview"+"{nid}")\' '
-            f'oncontextmenu=\'event.preventDefault();pycmd("AJPCNoteLinker-openEditor"+"{nid}")\'>'  # noqa: E501
+            f'href=\'javascript:pycmd("AJPCNoteLinker-openPreview"+"{target}")\' '
+            f'oncontextmenu=\'event.preventDefault();pycmd("AJPCNoteLinker-openEditor"+"{target}")\'>'  # noqa: E501
             f'<div class="ajpc-note-link-text">{label}</div></a>'
         )
 

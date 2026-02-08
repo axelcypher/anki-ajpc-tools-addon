@@ -16,35 +16,35 @@ from aqt.operations import CollectionOp
 from aqt.qt import (
     QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
     QFormLayout,
-    QGroupBox,
+    QFrame,
     QLabel,
     QLineEdit,
-    QPushButton,
-    QScrollArea,
     QSpinBox,
     QStandardItem,
     QStandardItemModel,
-    QTabWidget,
     Qt,
     QVBoxLayout,
     QWidget,
+    QSizePolicy,
 )
-from aqt.utils import showInfo, show_info, tooltip
+from aqt.utils import tooltip
 
+from .. import logging as core_logging
 from . import ModuleSpec
+from .link_core import LinkGroup, LinkPayload, LinkRef, ProviderContext, WrapperSpec
 
 ADDON_DIR = os.path.dirname(os.path.dirname(__file__))
 CONFIG_PATH = os.path.join(ADDON_DIR, "config.json")
 
 CFG: dict[str, Any] = {}
+CFG_MTIME: float | None = None
 DEBUG = False
 DEBUG_VERIFY_SUSPENSION = False
 RUN_ON_SYNC = True
 RUN_ON_UI = True
 STICKY_UNLOCK = True
-STABILITY_DEFAULT_THRESHOLD = 2.5
+STABILITY_DEFAULT_THRESHOLD = 14.0
 STABILITY_AGG = "min"
 WATCH_NIDS: set[int] = set()
 
@@ -53,8 +53,12 @@ FAMILY_FIELD = "FamilyID"
 FAMILY_SEP = ";"
 FAMILY_DEFAULT_PRIO = 0
 FAMILY_NOTE_TYPES: dict[str, Any] = {}
+FAMILY_RUN_ON_SYNC = True
 FAMILY_LINK_ENABLED = False
-FAMILY_LINK_CSS_SELECTOR = ""
+MASS_LINKER_LABEL_FIELD = ""
+
+FAMILY_LOOKUP_TTL_SECONDS = 10.0
+FAMILY_LOOKUP_CACHE: dict[tuple[int, str, str], tuple[float, list[int]]] = {}
 
 
 def _load_config() -> dict[str, Any]:
@@ -86,12 +90,12 @@ def _cfg_set(cfg: dict[str, Any], path: str, value: Any) -> None:
 
 
 def reload_config() -> None:
-    global CFG, DEBUG, DEBUG_VERIFY_SUSPENSION
+    global CFG, CFG_MTIME, DEBUG, DEBUG_VERIFY_SUSPENSION
     global RUN_ON_SYNC, RUN_ON_UI, STICKY_UNLOCK
     global STABILITY_DEFAULT_THRESHOLD, STABILITY_AGG
     global WATCH_NIDS
     global FAMILY_GATE_ENABLED, FAMILY_FIELD, FAMILY_SEP, FAMILY_DEFAULT_PRIO, FAMILY_NOTE_TYPES
-    global FAMILY_LINK_ENABLED, FAMILY_LINK_CSS_SELECTOR
+    global FAMILY_RUN_ON_SYNC, FAMILY_LINK_ENABLED, MASS_LINKER_LABEL_FIELD
 
     CFG = _load_config()
 
@@ -114,12 +118,15 @@ def reload_config() -> None:
     RUN_ON_SYNC = bool(cfg_get("run_on_sync", True))
     RUN_ON_UI = bool(cfg_get("run_on_ui", True))
     STICKY_UNLOCK = bool(cfg_get("sticky_unlock", True))
-    STABILITY_DEFAULT_THRESHOLD = float(cfg_get("stability.default_threshold", 2.5))
-    STABILITY_AGG = str(cfg_get("stability.aggregation", "min")).lower().strip()
+    STABILITY_DEFAULT_THRESHOLD = 14.0
+    STABILITY_AGG = "min"
 
     FAMILY_GATE_ENABLED = bool(cfg_get("family_gate.enabled", True))
+    FAMILY_RUN_ON_SYNC = bool(cfg_get("family_gate.run_on_sync", True))
     FAMILY_LINK_ENABLED = bool(cfg_get("family_gate.link_family_member", False))
-    FAMILY_LINK_CSS_SELECTOR = str(cfg_get("family_gate.link_css_selector", "")).strip()
+    MASS_LINKER_LABEL_FIELD = str(
+        cfg_get("mass_linker.label_field", cfg_get("mass_linker.copy_label_field", ""))
+    ).strip()
     FAMILY_FIELD = str(cfg_get("family_gate.family.field", "FamilyID"))
     FAMILY_SEP = str(cfg_get("family_gate.family.separator", ";"))
     FAMILY_DEFAULT_PRIO = int(cfg_get("family_gate.family.default_prio", 0))
@@ -167,6 +174,11 @@ def reload_config() -> None:
         if col:
             FAMILY_NOTE_TYPES = _map_dict_keys(col, FAMILY_NOTE_TYPES)
 
+    try:
+        CFG_MTIME = os.path.getmtime(CONFIG_PATH)
+    except Exception:
+        CFG_MTIME = None
+
 
 reload_config()
 
@@ -193,36 +205,42 @@ config = _ConfigProxy()
 DEBUG_LOG_PATH = os.path.join(ADDON_DIR, "ajpc_debug.log")
 
 
-def dbg(*a: Any) -> None:
-    if not config.DEBUG:
+def _invalidate_family_lookup_cache() -> None:
+    FAMILY_LOOKUP_CACHE.clear()
+
+
+def _maybe_reload_config(*, force: bool = False) -> None:
+    if force:
+        before = CFG_MTIME
+        reload_config()
+        if before != CFG_MTIME:
+            _invalidate_family_lookup_cache()
         return
-
     try:
-        ts = time.strftime("%H:%M:%S")
+        mtime = os.path.getmtime(CONFIG_PATH)
     except Exception:
-        ts = ""
+        mtime = None
+    if mtime is None:
+        return
+    if CFG_MTIME is None or mtime != CFG_MTIME:
+        reload_config()
+        _invalidate_family_lookup_cache()
 
-    line = " ".join(str(x) for x in a)
-    msg = f"[FamilyGate {ts}] {line}"
 
-    try:
-        import threading
+def dbg(*a: Any) -> None:
+    core_logging.trace(*a, source="family_gate")
 
-        if mw is not None and threading.current_thread() is not threading.main_thread():
-            mw.taskman.run_on_main(lambda m=msg: print(m, flush=True))
-        else:
-            print(msg, flush=True)
-    except Exception:
-        try:
-            print(msg, flush=True)
-        except Exception:
-            pass
 
-    try:
-        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(msg + "\n")
-    except Exception:
-        pass
+def log_info(*a: Any) -> None:
+    core_logging.info(*a, source="family_gate")
+
+
+def log_warn(*a: Any) -> None:
+    core_logging.warn(*a, source="family_gate")
+
+
+def log_error(*a: Any) -> None:
+    core_logging.error(*a, source="family_gate")
 
 
 def _get_note_type_items() -> list[tuple[str, str]]:
@@ -246,19 +264,6 @@ def _get_note_type_items() -> list[tuple[str, str]]:
     return items
 
 
-def _note_type_label(note_type_id: str) -> str:
-    if mw is None or not getattr(mw, "col", None):
-        return f"<missing {note_type_id}>"
-    try:
-        mid = int(str(note_type_id))
-    except Exception:
-        mid = None
-    model = mw.col.models.get(mid) if mid is not None else None
-    if not model:
-        return f"<missing {note_type_id}>"
-    return str(model.get("name", note_type_id))
-
-
 def _merge_note_type_items(
     base: list[tuple[str, str]], extra_ids: list[str]
 ) -> list[tuple[str, str]]:
@@ -271,73 +276,6 @@ def _merge_note_type_items(
         out.append((sid, f"<missing {sid}>"))
         seen.add(sid)
     return out
-
-
-def _get_template_items(note_type_id: str) -> list[tuple[str, str]]:
-    if mw is None or not getattr(mw, "col", None):
-        return []
-    try:
-        mid = int(str(note_type_id))
-        model = mw.col.models.get(mid)
-    except Exception:
-        model = None
-    if not model:
-        try:
-            model = mw.col.models.by_name(str(note_type_id))
-        except Exception:
-            model = None
-    if not model:
-        return []
-    tmpls = model.get("tmpls", []) if isinstance(model, dict) else []
-    out: list[tuple[str, str]] = []
-    for i, t in enumerate(tmpls):
-        if isinstance(t, dict):
-            name = t.get("name")
-        else:
-            name = getattr(t, "name", None)
-        label = str(name) if name else f"<template {i}>"
-        out.append((str(i), label))
-    return out
-
-
-def _merge_template_items(
-    base: list[tuple[str, str]], extra_values: list[str]
-) -> list[tuple[str, str]]:
-    out = list(base)
-    seen = {str(k) for k, _ in base}
-    for raw in extra_values:
-        val = str(raw).strip()
-        if not val or val in seen:
-            continue
-        out.append((val, f"<missing {val}>"))
-        seen.add(val)
-    return out
-
-
-def _template_ord_from_value(note_type_id: str, value: Any) -> str:
-    s = str(value).strip()
-    if not s:
-        return ""
-    if s.isdigit():
-        return s
-    if mw is None or not getattr(mw, "col", None):
-        return ""
-    try:
-        mid = int(str(note_type_id))
-        model = mw.col.models.get(mid)
-    except Exception:
-        model = None
-    if not model:
-        return ""
-    tmpls = model.get("tmpls", []) if isinstance(model, dict) else []
-    for i, t in enumerate(tmpls):
-        if isinstance(t, dict):
-            name = t.get("name")
-        else:
-            name = getattr(t, "name", None)
-        if name and str(name) == s:
-            return str(i)
-    return ""
 
 
 def _checked_items(model: QStandardItemModel) -> list[str]:
@@ -407,12 +345,6 @@ def _make_checkable_combo(items: list[Any], selected: list[str]) -> tuple[QCombo
 
 
 DEFAULT_STICKY_TAG_BASE = "_intern::family_gate::unlocked"
-DEFAULT_STAGE_TAG_PREFIX = "_intern::family_gate::unlocked::stage"
-_LOGGED_TEMPLATE_MISS: set[tuple[str, int]] = set()
-
-
-def stage_tag(stage_index: int) -> str:
-    return f"{DEFAULT_STAGE_TAG_PREFIX}{stage_index}"
 
 
 def _memory_state(card):
@@ -444,10 +376,6 @@ def card_stability(card) -> float | None:
 def agg(vals: list[float]) -> float | None:
     if not vals:
         return None
-    if config.STABILITY_AGG == "max":
-        return max(vals)
-    if config.STABILITY_AGG == "avg":
-        return sum(vals) / len(vals)
     return min(vals)
 
 
@@ -555,170 +483,6 @@ def _verify_suspended(col: Collection, cids: list[int], *, label: str) -> None:
     )
 
 
-@dataclass(frozen=True)
-class StageCfg:
-    templates: list[str]
-    threshold: float
-
-
-def get_stage_cfg_for_note_type(note_type_id: int | str) -> list[StageCfg]:
-    key = str(note_type_id)
-    nt = config.FAMILY_NOTE_TYPES.get(key) or {}
-    if not nt and not key.isdigit():
-        nt = config.FAMILY_NOTE_TYPES.get(str(note_type_id)) or {}
-    stages = nt.get("stages") or []
-    out: list[StageCfg] = []
-
-    for st in stages:
-        if isinstance(st, dict):
-            tmpls = [
-                _template_ord_from_value(str(note_type_id), x)
-                for x in (st.get("templates") or [])
-            ]
-            tmpls = [t for t in tmpls if t]
-            thr = float(st.get("threshold", config.STABILITY_DEFAULT_THRESHOLD))
-            out.append(StageCfg(templates=tmpls, threshold=thr))
-        elif isinstance(st, list):
-            tmpls = [_template_ord_from_value(str(note_type_id), x) for x in st]
-            tmpls = [t for t in tmpls if t]
-            out.append(
-                StageCfg(
-                    templates=tmpls,
-                    threshold=config.STABILITY_DEFAULT_THRESHOLD,
-                )
-            )
-
-    return out
-
-
-def _tmpl_by_ord(col: Collection, note) -> dict[int, str]:
-    out: dict[int, str] = {}
-    try:
-        model = col.models.get(note.mid)
-        tmpls = model.get("tmpls", [])
-        for i, t in enumerate(tmpls):
-            out[i] = str(t.get("name", ""))
-    except Exception:
-        pass
-    return out
-
-
-def compute_stage_stabilities(col: Collection, note, note_type_id: int | str) -> list[float | None]:
-    stages = get_stage_cfg_for_note_type(note_type_id)
-    if not stages:
-        return []
-
-    cards = note.cards()
-    stabs: list[float | None] = []
-    for st in stages:
-        wanted = set(st.templates)
-        vals: list[float] = []
-        saw_any = False
-        has_unknown = False
-
-        for c in cards:
-            if str(c.ord) in wanted:
-                saw_any = True
-                s = card_stability(c)
-                if s is None:
-                    has_unknown = True
-                else:
-                    vals.append(s)
-
-        if not saw_any:
-            stabs.append(None)
-        elif has_unknown:
-            stabs.append(None)
-        else:
-            stabs.append(agg(vals))
-
-    return stabs
-
-
-def stage_is_ready(note_type_id: int | str, stage_index: int, stage_stab: float | None) -> bool:
-    stages = get_stage_cfg_for_note_type(note_type_id)
-    if stage_index < 0 or stage_index >= len(stages):
-        return False
-    if stage_stab is None:
-        return False
-    return stage_stab >= float(stages[stage_index].threshold)
-
-
-def stage_card_ids(col: Collection, note, note_type_id: int | str, stage_index: int) -> list[int]:
-    stages = get_stage_cfg_for_note_type(note_type_id)
-    if stage_index < 0 or stage_index >= len(stages):
-        return []
-
-    wanted = set(stages[stage_index].templates)
-
-    cids: list[int] = []
-    for c in note.cards():
-        if str(c.ord) in wanted:
-            cids.append(c.id)
-
-    if config.DEBUG and not cids:
-        key = (note_type_id, stage_index)
-        if key not in _LOGGED_TEMPLATE_MISS:
-            _LOGGED_TEMPLATE_MISS.add(key)
-            avail = []
-            try:
-                model = col.models.get(int(str(note_type_id)))
-            except Exception:
-                model = None
-            if model:
-                tmpls = model.get("tmpls", []) if isinstance(model, dict) else []
-                avail = [str(t.get("name", "")) for t in tmpls if str(t.get("name", ""))]
-            dbg(
-                "stage_card_ids: no cards matched stage",
-                "note_type_id=",
-                note_type_id,
-                "stage=",
-                stage_index,
-                "wanted=",
-                sorted(wanted),
-                "available_templates=",
-                avail,
-            )
-
-    return cids
-
-
-def debug_template_coverage(col: Collection) -> None:
-    if not config.DEBUG:
-        return
-    for nt_id in config.FAMILY_NOTE_TYPES.keys():
-        try:
-            mid = int(nt_id)
-        except Exception:
-            mid = None
-        m = col.models.get(mid) if mid is not None else None
-        if not m:
-            dbg("coverage", nt_id, "model_not_found")
-            continue
-
-        tmpls = m.get("tmpls") or []
-        ord_to_name: dict[str, str] = {}
-        for i, t in enumerate(tmpls):
-            name = str(t.get("name", "")) if isinstance(t, dict) else ""
-            ord_to_name[str(i)] = name or f"<template {i}>"
-        cfg_names: set[str] = set()
-        for st in get_stage_cfg_for_note_type(nt_id):
-            cfg_names |= set(st.templates)
-
-        missing = [ord_to_name[k] for k in ord_to_name.keys() if k not in cfg_names]
-        extra = [k for k in sorted(cfg_names) if k not in ord_to_name]
-
-        if missing or extra:
-            dbg(
-                "coverage",
-                nt_id,
-                "missing_from_cfg=",
-                [repr(x) for x in missing],
-                "cfg_unknown=",
-                [repr(x) for x in extra],
-            )
-
-
 def _anki_quote(s: str) -> str:
     return (s or "").replace("\\", "\\\\").replace('"', '\\"')
 
@@ -775,7 +539,8 @@ def parse_family_field(raw: str) -> list[FamilyRef]:
     if not raw:
         return out
 
-    for part in raw.split(config.FAMILY_SEP):
+    sep = str(config.FAMILY_SEP or ";")
+    for part in raw.split(sep):
         p = part.strip()
         if not p:
             continue
@@ -797,6 +562,189 @@ def parse_family_field(raw: str) -> list[FamilyRef]:
     return out
 
 
+def _label_for_note(note, label_field: str) -> str:
+    if label_field and label_field in note:
+        return str(note[label_field] or "")
+    try:
+        return str(note.fields[0] or "")
+    except Exception:
+        return ""
+
+
+def _family_find_nids(field: str, fid: str) -> list[int]:
+    if mw is None or not getattr(mw, "col", None):
+        return []
+    if not field or not fid:
+        return []
+    cache_key = (id(mw.col), str(field), str(fid))
+    now = time.time()
+    cached = FAMILY_LOOKUP_CACHE.get(cache_key)
+    if cached is not None:
+        ts, nids = cached
+        if (now - ts) <= FAMILY_LOOKUP_TTL_SECONDS:
+            return list(nids)
+    pattern = ".*" + re.escape(fid) + ".*"
+    q = f"{field}:re:{pattern}"
+    try:
+        nids = list(mw.col.find_notes(q))
+        FAMILY_LOOKUP_CACHE[cache_key] = (now, nids)
+        return nids
+    except Exception:
+        dbg("family link search failed", q)
+        log_warn("family link search failed", q)
+        return []
+
+
+def _note_sort_field_value(note) -> str:
+    if mw is None or not getattr(mw, "col", None):
+        return ""
+    try:
+        model = mw.col.models.get(note.mid)
+    except Exception:
+        model = None
+    if not model:
+        return ""
+    sortf = model.get("sortf")
+    try:
+        idx = int(sortf)
+    except Exception:
+        return ""
+    try:
+        fields = getattr(note, "fields", None)
+        if not fields or idx < 0 or idx >= len(fields):
+            return ""
+        return str(fields[idx] or "")
+    except Exception:
+        return ""
+
+
+@dataclass
+class _FamilyLinkGroup:
+    fid: str
+    primary: list[LinkRef]
+    secondary: list[LinkRef]
+
+
+def _family_links_for_note(
+    note,
+    existing_nids: set[int],
+    existing_cids: set[int],
+) -> list[_FamilyLinkGroup]:
+    if mw is None or not getattr(mw, "col", None):
+        return []
+    field = str(config.FAMILY_FIELD or "").strip()
+    if not field or field not in note:
+        return []
+
+    refs = parse_family_field(str(note[field] or ""))
+    fids: list[str] = []
+    seen_fids: set[str] = set()
+    for r in refs:
+        fid = r.fid
+        if not fid or fid in seen_fids:
+            continue
+        seen_fids.add(fid)
+        fids.append(fid)
+    if not fids:
+        return []
+
+    label_field = str(config.MASS_LINKER_LABEL_FIELD or "").strip()
+    groups: list[_FamilyLinkGroup] = []
+    seen_nids: set[int] = set(existing_nids or set())
+    seen_cids: set[int] = set(existing_cids or set())
+
+    for fid in fids:
+        primary_links: list[LinkRef] = []
+        secondary_links: list[LinkRef] = []
+        seen: set[int] = set()
+        nids = _family_find_nids(field, fid)
+        if not nids:
+            continue
+
+        for nid in nids:
+            if nid == note.id or nid in seen or nid in seen_nids:
+                continue
+            try:
+                other = mw.col.get_note(nid)
+            except Exception:
+                continue
+            if field not in other:
+                continue
+            if seen_cids:
+                try:
+                    if any(c.id in seen_cids for c in other.cards()):
+                        continue
+                except Exception:
+                    pass
+            other_refs = parse_family_field(str(other[field] or ""))
+            if not any(r.fid == fid for r in other_refs):
+                continue
+
+            label = _label_for_note(other, label_field).strip() or f"nid{nid}"
+            link = LinkRef(label=label, kind="nid", target_id=int(nid))
+            if _note_sort_field_value(other) == fid:
+                primary_links.append(link)
+            else:
+                secondary_links.append(link)
+            seen.add(nid)
+            seen_nids.add(nid)
+            try:
+                for c in other.cards():
+                    seen_cids.add(c.id)
+            except Exception:
+                pass
+
+        groups.append(
+            _FamilyLinkGroup(
+                fid=fid,
+                primary=primary_links,
+                secondary=secondary_links,
+            )
+        )
+
+    return groups
+
+
+def _family_link_provider(ctx: ProviderContext) -> list[LinkPayload]:
+    _maybe_reload_config()
+    if not config.FAMILY_LINK_ENABLED:
+        return []
+    groups = _family_links_for_note(ctx.note, ctx.existing_nids, ctx.existing_cids)
+    if not groups:
+        return []
+
+    payload_groups: list[LinkGroup] = []
+    for grp in groups:
+        if not grp.primary and not grp.secondary:
+            continue
+        summary_ref: LinkRef | None = None
+        secondary: list[LinkRef] = []
+        if grp.primary:
+            summary_ref = grp.primary[0]
+            secondary.extend(grp.primary[1:])
+        secondary.extend(grp.secondary)
+        payload_groups.append(
+            LinkGroup(
+                key=grp.fid,
+                summary=summary_ref,
+                links=secondary,
+                data_attrs={"familyid": grp.fid},
+            )
+        )
+
+    if not payload_groups:
+        return []
+
+    return [
+        LinkPayload(
+            mode="grouped",
+            wrapper=WrapperSpec(classes=["ajpc-auto-links", "ajpc-family-links"]),
+            groups=payload_groups,
+            order=200,
+        )
+    ]
+
+
 @dataclass
 class NoteInFamily:
     nid: int
@@ -806,17 +754,16 @@ class NoteInFamily:
 
 def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
     if not config.FAMILY_GATE_ENABLED:
-        dbg("family_gate disabled")
+        log_info("family_gate disabled")
         return
 
     note_types = list(config.FAMILY_NOTE_TYPES.keys())
     if not note_types:
-        dbg("family_gate: no note_types configured")
+        log_warn("family_gate: no note_types configured")
         return
 
     nids = note_ids_for_note_types(col, note_types)
     dbg("family_gate: candidate notes", len(nids))
-    debug_template_coverage(col)
 
     fam_map: dict[str, list[NoteInFamily]] = {}
     note_refs: dict[int, tuple[int, list]] = {}
@@ -849,27 +796,24 @@ def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
         except Exception:
             dbg("family_gate: exception indexing nid", nid)
             dbg(traceback.format_exc())
+            log_warn("family_gate: exception indexing nid", nid)
 
     dbg("family_gate: unique families", len(fam_map))
 
-    note_stage_stabs: dict[int, list[float | None]] = {}
     note_stage0_ready: dict[int, bool] = {}
+    try:
+        from . import card_stages as _card_stages
+    except Exception:
+        _card_stages = None  # type: ignore
 
     for i, (nid, (nt_id, _refs)) in enumerate(note_refs.items()):
         try:
             note = col.get_note(nid)
-            stages = get_stage_cfg_for_note_type(nt_id)
-            if not stages:
-                note_stage_stabs[nid] = []
+            if _card_stages is None:
                 note_stage0_ready[nid] = True
-                continue
-
-            stabs = compute_stage_stabilities(col, note, nt_id)
-            note_stage_stabs[nid] = stabs
-            s0 = stabs[0] if stabs else None
-            note_stage0_ready[nid] = stage_is_ready(nt_id, 0, s0)
+            else:
+                note_stage0_ready[nid] = bool(_card_stages.note_stage0_ready(col, note))
         except Exception:
-            note_stage_stabs[nid] = []
             note_stage0_ready[nid] = False
 
         if i % 400 == 0:
@@ -920,9 +864,6 @@ def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
     for i, (nid, (nt_id, refs)) in enumerate(note_items):
         try:
             note = col.get_note(nid)
-            stages = get_stage_cfg_for_note_type(nt_id)
-            if not stages:
-                continue
 
             effective_gate_open = True
             gate_parts: list[str] = []
@@ -932,71 +873,18 @@ def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
                 if config.DEBUG and nid in config.WATCH_NIDS:
                     gate_parts.append(f"{r.fid}@{r.prio}={ok}")
 
-            stabs = note_stage_stabs.get(nid, [])
-            prev_stage_ok = True
-
-            for st_idx in range(len(stages)):
-                st_cids = stage_card_ids(col, note, nt_id, st_idx)
-                if not st_cids:
-                    continue
-
-                should_open = effective_gate_open if st_idx == 0 else (
-                    effective_gate_open and prev_stage_ok
-                )
-
-                stab_val = stabs[st_idx] if st_idx < len(stabs) else None
-                this_stage_ready = stage_is_ready(nt_id, st_idx, stab_val)
-
-                st_tag = stage_tag(st_idx)
-                st_sticky = config.STICKY_UNLOCK and (st_tag in note.tags)
-
-                if config.DEBUG and nid in config.WATCH_NIDS:
-                    dbg(
-                        "WATCH",
-                        "nid=",
-                        nid,
-                        "refs=",
-                        " | ".join(gate_parts),
-                        "stage=",
-                        st_idx,
-                        "gate_all=",
-                        effective_gate_open,
-                        "should_open=",
-                        should_open,
-                        "sticky=",
-                        st_sticky,
-                        "ready=",
-                        this_stage_ready,
-                        "stab=",
-                        stab_val,
-                        "cids=",
-                        len(st_cids),
-                    )
-
-                    cards = note.cards()
-                    wanted_set = set(stages[st_idx].templates)
-
-                    for c in cards:
-                        ord_str = str(c.ord)
-                        if ord_str in wanted_set:
-                            tn = _tmpl_by_ord(col, note).get(c.ord) or ""
-                            dbg("WATCH_CARD", "nid=", nid, _dbg_card_state(c, tn))
-
-                if should_open or st_sticky:
-                    to_unsuspend.extend(st_cids)
-                    if config.STICKY_UNLOCK and this_stage_ready and st_tag not in note.tags:
-                        note.add_tag(DEFAULT_STICKY_TAG_BASE)
-                        note.add_tag(st_tag)
-                        note.flush()
-                        counters["notes_tagged"] += 1
-                else:
-                    to_suspend.extend(st_cids)
-
-                prev_stage_ok = this_stage_ready
+            cids = [c.id for c in note.cards()]
+            if not cids:
+                continue
+            if effective_gate_open:
+                to_unsuspend.extend(cids)
+            else:
+                to_suspend.extend(cids)
 
         except Exception:
             dbg("family_gate: exception applying nid", nid)
             dbg(traceback.format_exc())
+            log_warn("family_gate: exception applying nid", nid)
 
         if i % 400 == 0:
             ui_set(
@@ -1019,17 +907,11 @@ def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
 
 
 def _notify_info(msg: str, *, reason: str = "manual") -> None:
-    if reason == "sync":
-        tooltip(msg)
-    else:
-        show_info(msg)
+    tooltip(msg, period=2500)
 
 
 def _notify_error(msg: str, *, reason: str = "manual") -> None:
-    if reason == "sync":
-        tooltip(msg)
-    else:
-        showInfo(msg)
+    tooltip(msg, period=2500)
 
 
 def run_family_gate(*, reason: str = "manual") -> None:
@@ -1040,19 +922,22 @@ def run_family_gate(*, reason: str = "manual") -> None:
         config.DEBUG,
         "run_on_sync=",
         config.RUN_ON_SYNC,
+        "family_run_on_sync=",
+        config.FAMILY_RUN_ON_SYNC,
         "run_on_ui=",
         config.RUN_ON_UI,
     )
 
     if not mw or not mw.col:
+        log_error("family_gate: no collection loaded")
         _notify_error("No collection loaded.", reason=reason)
         return
 
-    if reason == "sync" and not config.RUN_ON_SYNC:
-        dbg("family_gate: skip (run_on_sync disabled)")
+    if reason == "sync" and not (config.RUN_ON_SYNC and config.FAMILY_RUN_ON_SYNC):
+        log_info("family_gate: skip (run_on_sync disabled)")
         return
     if reason == "manual" and not config.RUN_ON_UI:
-        dbg("family_gate: skip (run_on_ui disabled)")
+        log_info("family_gate: skip (run_on_ui disabled)")
         return
 
     def ui_set(label: str, value: int, maxv: int) -> None:
@@ -1068,7 +953,7 @@ def run_family_gate(*, reason: str = "manual") -> None:
         mw.taskman.run_on_main(_do)
 
     def op(col: Collection):
-        undo_entry = col.add_custom_undo_entry("AJpC Family Gate")
+        undo_entry = col.add_custom_undo_entry("AJpC Family Priority")
 
         counters = {
             "cards_suspended": 0,
@@ -1089,6 +974,7 @@ def run_family_gate(*, reason: str = "manual") -> None:
         except InvalidInput:
             if config.DEBUG:
                 dbg("merge_undo_entries skipped: target undo op not found", undo_entry)
+            log_warn("merge_undo_entries skipped: target undo op not found", undo_entry)
             changes = OpChanges()
 
         if changes is None:
@@ -1097,14 +983,18 @@ def run_family_gate(*, reason: str = "manual") -> None:
         return _Result(changes, counters)
 
     def on_success(result) -> None:
-        if reason == "sync":
-            return
         c = getattr(result, "counts", {}) or {}
         msg = (
-            "Family Gate finished.\n"
+            "Family Priority finished.\n"
             f"unsuspended={c.get('cards_unsuspended', 0)} "
             f"suspended={c.get('cards_suspended', 0)} "
             f"tagged_notes={c.get('notes_tagged', 0)}"
+        )
+        log_info(
+            "Family Priority finished",
+            f"unsuspended={c.get('cards_unsuspended', 0)}",
+            f"suspended={c.get('cards_suspended', 0)}",
+            f"tagged_notes={c.get('notes_tagged', 0)}",
         )
         if config.DEBUG:
             dbg("RESULT", msg)
@@ -1112,51 +1002,58 @@ def run_family_gate(*, reason: str = "manual") -> None:
 
     def on_failure(err: Exception) -> None:
         tb = "".join(traceback.format_exception(type(err), err, err.__traceback__))
+        log_error("Family Priority failed", repr(err))
         if config.DEBUG:
             dbg("FAILURE", repr(err))
             dbg(tb)
-        _notify_error("Family Gate failed:\n" + tb, reason=reason)
+        _notify_error("Family Priority failed:\n" + tb, reason=reason)
+
+    if reason == "sync":
+        try:
+            op(mw.col)
+        except Exception as err:
+            on_failure(err)
+        return
 
     CollectionOp(parent=mw, op=op).success(on_success).failure(on_failure).run_in_background()
+
+
+def _info_box(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+    label.setStyleSheet("padding: 6px; border: 1px solid #999; border-radius: 4px;")
+    return label
 
 
 def _build_settings(ctx):
     family_tab = QWidget()
     family_layout = QVBoxLayout()
     family_tab.setLayout(family_layout)
-    family_tabs = QTabWidget()
-    family_layout.addWidget(family_tabs)
-
-    general_tab = QWidget()
-    general_layout = QVBoxLayout()
-    general_tab.setLayout(general_layout)
     family_form = QFormLayout()
-    general_layout.addLayout(family_form)
+    family_layout.addLayout(family_form)
 
     family_enabled_cb = QCheckBox()
     family_enabled_cb.setChecked(config.FAMILY_GATE_ENABLED)
     family_form.addRow("Enabled", family_enabled_cb)
 
+    family_run_on_sync_cb = QCheckBox()
+    family_run_on_sync_cb.setChecked(config.FAMILY_RUN_ON_SYNC)
+    family_form.addRow("Run on sync", family_run_on_sync_cb)
+
     family_link_cb = QCheckBox()
     family_link_cb.setChecked(config.FAMILY_LINK_ENABLED)
     family_form.addRow("Link family member", family_link_cb)
 
+    separator = QFrame()
+    separator.setFrameShape(QFrame.Shape.HLine)
+    separator.setFrameShadow(QFrame.Shadow.Sunken)
+
+    family_form.addWidget(separator)
+
     family_field_edit = QLineEdit()
     family_field_edit.setText(config.FAMILY_FIELD)
     family_form.addRow("Family field", family_field_edit)
-
-    family_link_css_edit = QLineEdit()
-    family_link_css_edit.setText(config.FAMILY_LINK_CSS_SELECTOR)
-    family_link_css_label = QLabel("Link css selector")
-    family_form.addRow(family_link_css_label, family_link_css_edit)
-
-    def _toggle_family_link_selector() -> None:
-        visible = bool(family_link_cb.isChecked())
-        family_link_css_label.setVisible(visible)
-        family_link_css_edit.setVisible(visible)
-
-    family_link_cb.stateChanged.connect(lambda _=None: _toggle_family_link_selector())
-    _toggle_family_link_selector()
 
     family_sep_edit = QLineEdit()
     family_sep_edit.setText(config.FAMILY_SEP)
@@ -1174,190 +1071,31 @@ def _build_settings(ctx):
         family_note_type_items, list((config.FAMILY_NOTE_TYPES or {}).keys())
     )
     family_form.addRow("Note types", family_note_type_combo)
-
-    family_tabs.addTab(general_tab, "General")
-
-    stages_tab = QWidget()
-    stages_layout = QVBoxLayout()
-    stages_tab.setLayout(stages_layout)
-
-    stages_empty_label = QLabel("Select note types in General tab.")
-    stages_layout.addWidget(stages_empty_label)
-
-    family_stage_tabs = QTabWidget()
-    stages_layout.addWidget(family_stage_tabs)
-
-    family_tabs.addTab(stages_tab, "Stages")
-
-    family_state: dict[str, list[dict]] = {}
-    for nt_id, nt_cfg in (config.FAMILY_NOTE_TYPES or {}).items():
-        stages = nt_cfg.get("stages") if isinstance(nt_cfg, dict) else None
-        out_stages: list[dict] = []
-        if isinstance(stages, list):
-            for st in stages:
-                if isinstance(st, dict):
-                    tmpls = [
-                        _template_ord_from_value(str(nt_id), x) or str(x).strip()
-                        for x in (st.get("templates") or [])
-                    ]
-                    tmpls = [t for t in tmpls if t]
-                    thr = float(st.get("threshold", config.STABILITY_DEFAULT_THRESHOLD))
-                    out_stages.append({"templates": tmpls, "threshold": thr})
-                elif isinstance(st, list):
-                    tmpls = [
-                        _template_ord_from_value(str(nt_id), x) or str(x).strip()
-                        for x in st
-                    ]
-                    tmpls = [t for t in tmpls if t]
-                    out_stages.append(
-                        {"templates": tmpls, "threshold": config.STABILITY_DEFAULT_THRESHOLD}
-                    )
-        family_state[str(nt_id)] = out_stages
-
-    family_note_type_widgets: dict[str, list[dict]] = {}
-
-    def _capture_family_state() -> None:
-        for nt_id, stages in family_note_type_widgets.items():
-            out: list[dict] = []
-            for stage in stages:
-                templates_model = stage["templates_model"]
-                threshold_spin = stage["threshold_spin"]
-                out.append(
-                    {
-                        "templates": _checked_items(templates_model),
-                        "threshold": float(threshold_spin.value()),
-                    }
-                )
-            family_state[nt_id] = out
-
-    def _clear_family_tabs() -> None:
-        while family_stage_tabs.count():
-            w = family_stage_tabs.widget(0)
-            family_stage_tabs.removeTab(0)
-            if w is not None:
-                w.deleteLater()
-
-    def _add_family_stage(nt_id: str) -> None:
-        _capture_family_state()
-        family_state.setdefault(nt_id, []).append(
-            {"templates": [], "threshold": float(config.STABILITY_DEFAULT_THRESHOLD)}
+    family_layout.addStretch(1)
+    family_layout.addWidget(
+        _info_box(
+            "Run on sync: runs the gate automatically at sync start.\n"
+            "Link family member: generates family links for Link Core rendering.\n"
+            "Family field: field containing entries like FamilyID@prio.\n"
+            "Family separator: separator between multiple family entries in the field.\n"
+            "Default prio: used when '@prio' is omitted.\n"
+            "Note types: only these note types participate in family unlock checks."
         )
-        _refresh_family_stages(capture=False)
+    )
 
-    def _remove_family_stage(nt_id: str, idx: int) -> None:
-        _capture_family_state()
-        stages = family_state.get(nt_id, [])
-        if 0 <= idx < len(stages):
-            del stages[idx]
-        family_state[nt_id] = stages
-        _refresh_family_stages(capture=False)
-
-    def _refresh_family_stages(*, capture: bool = True) -> None:
-        if capture:
-            _capture_family_state()
-        _clear_family_tabs()
-        family_note_type_widgets.clear()
-
-        selected_types = _checked_items(family_note_type_model)
-        stages_empty_label.setVisible(not bool(selected_types))
-        family_stage_tabs.setVisible(bool(selected_types))
-        for nt_id in selected_types:
-            stages = family_state.get(nt_id, [])
-            family_note_type_widgets[nt_id] = []
-
-            tab = QWidget()
-            tab_layout = QVBoxLayout()
-            tab.setLayout(tab_layout)
-
-            add_btn = QPushButton("Add stage")
-            add_btn.clicked.connect(lambda _=None, n=nt_id: _add_family_stage(n))
-            tab_layout.addWidget(add_btn)
-
-            extra_templates: list[str] = []
-            for st in stages:
-                for t in st.get("templates", []) or []:
-                    extra_templates.append(str(t))
-            template_items = _merge_template_items(
-                _get_template_items(nt_id), extra_templates
-            )
-
-            stages_scroll = QScrollArea()
-            stages_scroll.setWidgetResizable(True)
-            stages_container = QWidget()
-            stages_container_layout = QVBoxLayout()
-            stages_container.setLayout(stages_container_layout)
-            stages_scroll.setWidget(stages_container)
-            tab_layout.addWidget(stages_scroll)
-
-            for idx, st in enumerate(stages):
-                stage_box = QGroupBox(f"Stage {idx}")
-                stage_form = QFormLayout()
-                stage_box.setLayout(stage_form)
-
-                templates_combo, templates_model = _make_checkable_combo(
-                    template_items, list(st.get("templates", []) or [])
-                )
-                stage_form.addRow("Templates", templates_combo)
-
-                threshold_spin = QDoubleSpinBox()
-                threshold_spin.setDecimals(2)
-                threshold_spin.setRange(0, 100000)
-                threshold_spin.setValue(float(st.get("threshold", config.STABILITY_DEFAULT_THRESHOLD)))
-                stage_form.addRow("Threshold", threshold_spin)
-
-                remove_btn = QPushButton("Remove stage")
-                remove_btn.clicked.connect(lambda _=None, n=nt_id, i=idx: _remove_family_stage(n, i))
-                stage_form.addRow(remove_btn)
-
-                stages_container_layout.addWidget(stage_box)
-                family_note_type_widgets[nt_id].append(
-                    {
-                        "templates_model": templates_model,
-                        "threshold_spin": threshold_spin,
-                    }
-                )
-
-            stages_container_layout.addStretch(1)
-
-            family_stage_tabs.addTab(tab, _note_type_label(nt_id))
-
-    _refresh_family_stages()
-    family_note_type_model.itemChanged.connect(lambda _item: _refresh_family_stages())
-
-    ctx.add_tab(family_tab, "Family Gate")
+    ctx.add_tab(family_tab, "Family Priority")
 
     def _save(cfg: dict, errors: list[str]) -> None:
         fam_sep = family_sep_edit.text().strip()
         if not fam_sep:
             errors.append("Family separator cannot be empty.")
 
-        _capture_family_state()
         family_note_types = _checked_items(family_note_type_model)
-        family_note_types_cfg: dict[str, Any] = {}
-        for nt_id in family_note_types:
-            stages = family_state.get(nt_id, [])
-            if not stages:
-                errors.append(
-                    f"Family Gate: no stages defined for note type: {_note_type_label(nt_id)}"
-                )
-                continue
-            stage_cfgs: list[dict[str, Any]] = []
-            for s_idx, st in enumerate(stages):
-                tmpls = [str(x) for x in (st.get("templates") or []) if str(x)]
-                tmpls = [t for t in tmpls if t.isdigit()]
-                if not tmpls:
-                    errors.append(
-                        f"Family Gate: stage {s_idx} has no templates ({_note_type_label(nt_id)})"
-                    )
-                    continue
-                thr = float(st.get("threshold", config.STABILITY_DEFAULT_THRESHOLD))
-                stage_cfgs.append({"templates": tmpls, "threshold": thr})
-            if stage_cfgs:
-                family_note_types_cfg[nt_id] = {"stages": stage_cfgs}
+        family_note_types_cfg: dict[str, Any] = {str(nt_id): {} for nt_id in family_note_types}
 
         config._cfg_set(cfg, "family_gate.enabled", bool(family_enabled_cb.isChecked()))
+        config._cfg_set(cfg, "family_gate.run_on_sync", bool(family_run_on_sync_cb.isChecked()))
         config._cfg_set(cfg, "family_gate.link_family_member", bool(family_link_cb.isChecked()))
-        config._cfg_set(cfg, "family_gate.link_css_selector", family_link_css_edit.text().strip())
         config._cfg_set(cfg, "family_gate.family.field", family_field_edit.text().strip())
         config._cfg_set(cfg, "family_gate.family.separator", fam_sep)
         config._cfg_set(cfg, "family_gate.family.default_prio", int(family_prio_spin.value()))
@@ -1372,24 +1110,40 @@ def _enabled_family() -> bool:
 
 def _init() -> None:
     from aqt import gui_hooks, mw
+    from . import link_core
 
-    def _on_sync_finished() -> None:
+    def _on_collection_changed(*_args, **_kwargs) -> None:
+        _invalidate_family_lookup_cache()
+
+    def _on_sync_start() -> None:
+        _invalidate_family_lookup_cache()
         run_family_gate(reason="sync")
 
-    if config.RUN_ON_SYNC:
-        if mw is not None and not getattr(mw, "_ajpc_familygate_sync_hook_installed", False):
-            gui_hooks.sync_did_finish.append(_on_sync_finished)
-            mw._ajpc_familygate_sync_hook_installed = True
+    link_core.install_link_core()
+    link_core.register_provider("family_gate", _family_link_provider, order=200)
+
+    if mw is not None and not getattr(mw, "_ajpc_familygate_cache_hooks_installed", False):
+        op_hook = getattr(gui_hooks, "operation_did_execute", None)
+        if op_hook is not None:
+            op_hook.append(_on_collection_changed)
+        add_note_hook = getattr(gui_hooks, "add_cards_did_add_note", None)
+        if add_note_hook is not None:
+            add_note_hook.append(_on_collection_changed)
+        mw._ajpc_familygate_cache_hooks_installed = True
+
+    if mw is not None and not getattr(mw, "_ajpc_familygate_sync_hook_installed", False):
+        gui_hooks.sync_will_start.append(_on_sync_start)
+        mw._ajpc_familygate_sync_hook_installed = True
 
 
 MODULE = ModuleSpec(
     id="family_gate",
-    label="Family Gate",
-    order=20,
+    label="Family Priority",
+    order=30,
     init=_init,
     run_items=[
         {
-            "label": "Run Family Gate",
+            "label": "Run Family Priority",
             "callback": lambda: run_family_gate(reason="manual"),
             "enabled_fn": _enabled_family,
             "order": 10,

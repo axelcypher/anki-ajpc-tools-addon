@@ -1,46 +1,47 @@
-﻿# AJpC Add-on Documentation (Family Gate, Example Gate, Kanji Gate, Card Sorter, Mass Linker)
+# AJpC Add-on Documentation (Card Stages, Family Priority, Example Unlocker, Kanji Unlocker, Card Sorter, Mass Linker & Note Linker)
 
 ## What this add-on does
 
 This add-on helps you control *when* Anki cards become available, so you can learn in a structured order:
 
-1. **Family Gate**
+1. **Card Stages**
    Keeps "advanced" cards hidden until the "base" cards are learned well enough.
-2. **Example Gate**
+2. **Family Priority**
+   Keeps related notes like compound words hidden until the "base" notes are learned well enough.
+3. **Example Unlocker**
    Unlocks example sentence cards only after the related vocabulary is ready.
-3. **Kanji Gate**
+4. **Kanji Unlocker**
    Unlocks kanji/components based on vocab thresholds and behavior mode.
-4. **Card Sorter**
+5. **Card Sorter**
    Moves cards into preconfigured decks based on note type and card template.
-5. **Mass Linker & Auto Links**
-   Adds fallback note links if Anki Note Linker is missing and can auto-generate links based on tags.
+6. **Link Core**
+   Handles note/card links and provides a useful link sidepanel for the editor.
+7. **Mass Linker**
+   Auto-generate note links based on tags.
 
 This add-on relies primarily on **FSRS** stability ratings, so you must use FSRS to use it!
 
-I recommend using it with its companion add-on: [anki-ajpc-family-graph-addon](https://github.com/axelcypher/anki-ajpc-family-graph-addon). It adds a nice, force-graph-based GUI for connecting notes and editing relationships between them. (I highly recommend it, because I may have overengineered this add-on to the point where even I canâ€™t fully comprehend what connects to what without proper visualization.)
+I recommend using it with its companion add-on: [anki-ajpc-family-graph-addon](https://github.com/axelcypher/anki-ajpc-family-graph-addon). It adds a nice, force-graph-based GUI for connecting notes and editing relationships between them. (I highly recommend it, because I may have overengineered this add-on to the point where even I can't fully comprehend what connects to what without proper visualization.)
 
-Note types are referenced internally by their **model ID** (not the visible name). The settings UI shows names,
-so you only need to care about IDs if you edit the JSON config manually.
+Note types are referenced internally by their **model ID** (not the visible name). The settings UI shows names, so you only need to care about IDs if you edit the JSON config manually.
 
 ---
 
-## Why?
+## Why->
 
 As you can probably guess, I created this add-on mainly to study Japanese. 
-However, **you can use it with any learning material you want**.
+However, **you can use a big portion of it with any learning material you want**.
 
-Although some of this add-onâ€™s functionality is heavily inspired by other add-ons **(Card Sorter)**, those add-ons 
-caused issues for me. Also, they used plain JSON for their configs, which I strongly dislike â€” especially if youâ€™re not familiar 
-with formats like JSON. Lastly, **I couldnâ€™t find any add-on that provides the gate functionality** (more on that below). 
+Although parts of this add-on's functionality are heavily inspired by other add-ons **(more in the "Credits" section)**, those add-ons caused issues for me or didn't had specific features I needed. Also, some use plain JSON for their configs, which I strongly dislike.
 
 So the only viable conclusion was: *to write my own version!*
 
 I may extend the functionality over time. ~~Also, if you want to use it for Japanese, I suggest you check out my note templates,~~ 
-~~which I built the gate logic around.~~ (Coming soon â€” I need to test them a bit more to make sure everything works correctly)
+~~which I built the gate logic around.~~ (Coming soon -- I need to test them a bit more to make sure everything works correctly)
 
 ---
 
-## Family Gate
+## Card Stages
 
 ### Goal
 
@@ -77,7 +78,7 @@ So within one note, stages unlock like a chain.
 
 ---
 
-## Family Gate Priority (learning order between related notes)
+## Family Priority (learning order between related notes)
 
 ### Why priority exists
 
@@ -119,7 +120,7 @@ This ensures the compound appears only after its components (and the pattern) ar
 
 ---
 
-## Example Gate
+## Example Unlocker
 
 ### Goal
 
@@ -147,7 +148,7 @@ An example card is allowed only if:
 
 ---
 
-## Kanji Gate
+## Kanji Unlocker
 
 ### Goal
 
@@ -197,30 +198,24 @@ Note type: **JP Vocab**
 
 Result: each card goes to the exact deck you want without manual dragging.
 
-Credit: [https://ankiweb.net/shared/info/1310787152](https://ankiweb.net/shared/info/1310787152) - The Card Sorter feature is based on this add-on.
-Itâ€™s a rework of the original that didnâ€™t work properly because of deprecated code and edge-case issues.
-
 ---
 
-## Mass Linker (ANL Fallback + Auto Links)
+## Mass Linker
 
 ### Goal
 
-Mass Linker provides note links that work even without Anki Note Linker, and can optionally generate link lists automatically.
+Mass Linker provides specific cards with links based upon tags automatically. 
 
 ### How it works
 
-* If Anki Note Linker is **not installed or disabled**, AJpC converts `[label|nid1234567890123]` into:
-  * left-click = preview
-  * right-click = open editor
-* Auto links can be configured per note type:
-  * **Target field** to insert the links
-  * **Tag** to search for linked notes
+* Each note type that wants to utilize this feature **needs a field "LinkedNotes"** in the card template.
+* Mass links are inserted into the **parent element of the "LinkedNotes" field** in the card template.
+  * Example: `<div id="links-wrapper">{{LinkedNotes}}</div>` -> links are injected into `#links-wrapper` even if "LinkedNotes" is empty.
+* Mass links can be configured per note type:
+  * **Label field** (optional; defaults to sort field)
   * **Templates** to include (leave empty = all)
   * **Side** (front/back/both)
-  * **Label field** (optional; defaults to first field)
-* Placement rule: auto links are inserted into the **parent element of the target field** in the card template.
-  * Example: `<div id="links-wrapper">{{LinkedNotes}}</div>` â†’ links are injected into `#links-wrapper` even if the field is empty.
+  * **Tag** to search for linked notes
 
 ---
 
@@ -229,14 +224,32 @@ Mass Linker provides note links that work even without Anki Note Linker, and can
 In Anki you have an AJpC menu with:
 
 * **Run All** (runs all enabled modules)
-* **Run -> Run Family Gate**
-* **Run -> Run Example Gate**
-* **Run -> Run Kanji Gate**
+* **Run -> Run Family Priority**
+* **Run -> Run Example Unlocker**
+* **Run -> Run Kanji Unlocker**
 * **Run -> Run Card Sorter**
 
 All settings are configured via the Add-on Settings UI:
 
 * **Settings -> Main Settings**
 
-Note: You should always ***back up your collection before using add-ons.*** While this add-on canâ€™t delete cards, it uses tags for some functionality, 
+Note: You should always ***back up your collection before using add-ons.*** While this add-on can't delete cards, it uses tags for some functionality, 
 and ***misconfiguration could scramble up your decks!***
+
+---
+
+## Credits
+Those add-ons inspired some of the functionallity of this add-on. Due to unwanted behavior, deprecation or special needs that those addons didn't provide, i had to create my own implementations.
+
+- [Kanji Unlock Addon](https://ankiweb.net/shared/info/953200781) - Technically, nothing in this add-on is based on it, nor did I get the idea for the “Kanji Unlocker” from it. I discovered it after my first working prototype, but due to the similarity, I didn’t want to exclude it from this list.
+- [Auto Note Linker](https://ankiweb.net/shared/info/1156904184) - The “Core Linker” feature is heavily inspired by this add-on. I created my own version due to the needs and complexity of the “Family Priority → Family links” and “Mass Linker” features, which inject note/card links when viewing a card. I also wanted better performance for the editor side panel, as force-graph (used by ANL) was way too overkill for this.
+- [Automatically Sort Cards Into Decks (Card Sorter)](https://ankiweb.net/shared/info/1310787152) - The "Card Sorter" feature is based on this add-on. It's a rework of the original that didn't work properly because of deprecated code and edge-case issues.
+- [🔂AnkiRestart - Quick Anki Rebooter, for Customize & Develop (Created by Shigeඞ)](https://ankiweb.net/shared/info/237169833) - The restart feature under "Debug" is inspired by shigeඞs method of restarting Anki. Due to it being to fast with no config option for delay, often it tried to restart while Anki wasn't closed yet. (Mainly used for debugging, where i had to restart anki multiple times in short succession)
+
+---
+
+## License
+Project code: MIT - see `LICENSE`.
+
+Vendored third-party components (`fugashi`, `unidic-lite`) use their own licenses.
+See `THIRD_PARTY_LICENSES.md` and the copied license texts in `licenses/`.

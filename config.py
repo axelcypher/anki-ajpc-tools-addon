@@ -10,15 +10,20 @@ CONFIG_PATH = os.path.join(ADDON_DIR, "config.json")
 CFG: dict[str, Any] = {}
 DEBUG = False
 DEBUG_VERIFY_SUSPENSION = False
+DEBUG_SHOW_RESTART_BUTTON = False
+DEBUG_LEVEL = "debug"
+DEBUG_MODULE_LOGS: dict[str, bool] = {}
+DEBUG_MODULE_LEVELS: dict[str, str] = {}
 RUN_ON_SYNC = True
 RUN_ON_UI = True
 STICKY_UNLOCK = True
-STABILITY_DEFAULT_THRESHOLD = 2.5
+RESTORE_MAIN_WINDOW_GEOMETRY = True
+STABILITY_DEFAULT_THRESHOLD = 14.0
 STABILITY_AGG = "min"
 NOTETYPES_INSTALLED = False
-NOTE_LINKER_ENABLED = True
-NOTE_LINKER_RULES = {}
-NOTE_LINKER_COPY_LABEL_FIELD = ""
+MASS_LINKER_ENABLED = True
+MASS_LINKER_RULES = {}
+MASS_LINKER_COPY_LABEL_FIELD = ""
 
 FAMILY_GATE_ENABLED = True
 FAMILY_FIELD = "FamilyID"
@@ -26,8 +31,10 @@ FAMILY_SEP = ";"
 FAMILY_DEFAULT_PRIO = 0
 FAMILY_NOTE_TYPES: dict[str, Any] = {}
 FAMILY_LINK_ENABLED = False
-FAMILY_LINK_CSS_SELECTOR = ""
-FAMILY_LINK_ENABLED = False
+
+CARD_STAGES_ENABLED = True
+CARD_STAGES_RUN_ON_SYNC = True
+CARD_STAGES_NOTE_TYPES: dict[str, Any] = {}
 
 EXAMPLE_GATE_ENABLED = True
 VOCAB_DECK = ""
@@ -52,19 +59,19 @@ KANJI_GATE_BEHAVIOR = "kanji_and_components"
 KANJI_GATE_STABILITY_AGG = "min"
 KANJI_GATE_VOCAB_NOTE_TYPES: dict[str, Any] = {}
 KANJI_GATE_KANJI_NOTE_TYPE = ""
+KANJI_GATE_KANJI_FIELDS: list[str] = []
 KANJI_GATE_KANJI_FIELD = ""
 KANJI_GATE_KANJI_ALT_FIELD = ""
 KANJI_GATE_COMPONENTS_FIELD = ""
 KANJI_GATE_KANJI_RADICAL_FIELD = ""
 KANJI_GATE_RADICAL_NOTE_TYPE = ""
 KANJI_GATE_RADICAL_FIELD = ""
-KANJI_GATE_KANJI_THRESHOLD = 0.0
-KANJI_GATE_COMPONENT_THRESHOLD = 0.0
+KANJI_GATE_KANJI_THRESHOLD = 14.0
+KANJI_GATE_COMPONENT_THRESHOLD = 14.0
 
 CARD_SORTER_ENABLED = True
 CARD_SORTER_RUN_ON_ADD = True
-CARD_SORTER_RUN_ON_SYNC_START = True
-CARD_SORTER_RUN_ON_SYNC_FINISH = True
+CARD_SORTER_RUN_ON_SYNC = True
 CARD_SORTER_EXCLUDE_DECKS: list[str] = []
 CARD_SORTER_EXCLUDE_TAGS: list[str] = []
 CARD_SORTER_NOTE_TYPES: dict[str, Any] = {}
@@ -99,33 +106,61 @@ def _cfg_set(cfg: dict[str, Any], path: str, value: Any) -> None:
 
 
 def reload_config() -> None:
-    global CFG, DEBUG, DEBUG_VERIFY_SUSPENSION
+    global CFG, DEBUG, DEBUG_VERIFY_SUSPENSION, DEBUG_SHOW_RESTART_BUTTON
+    global DEBUG_LEVEL, DEBUG_MODULE_LOGS, DEBUG_MODULE_LEVELS
     global RUN_ON_SYNC, RUN_ON_UI
+    global RESTORE_MAIN_WINDOW_GEOMETRY
     global STICKY_UNLOCK, STABILITY_DEFAULT_THRESHOLD, STABILITY_AGG, NOTETYPES_INSTALLED
-    global NOTE_LINKER_ENABLED, NOTE_LINKER_RULES, NOTE_LINKER_COPY_LABEL_FIELD
+    global MASS_LINKER_ENABLED, MASS_LINKER_RULES, MASS_LINKER_COPY_LABEL_FIELD
     global FAMILY_GATE_ENABLED, FAMILY_FIELD, FAMILY_SEP, FAMILY_DEFAULT_PRIO, FAMILY_NOTE_TYPES
-    global FAMILY_LINK_ENABLED, FAMILY_LINK_CSS_SELECTOR
+    global FAMILY_LINK_ENABLED
+    global CARD_STAGES_ENABLED, CARD_STAGES_RUN_ON_SYNC, CARD_STAGES_NOTE_TYPES
     global EXAMPLE_GATE_ENABLED, VOCAB_DECK, EXAMPLE_DECK, VOCAB_KEY_FIELD, EXAMPLE_KEY_FIELD
     global EX_STAGE_SEP, EX_STAGE_DEFAULT, EX_APPLY_ALL_CARDS
     global KEY_NORM, KEY_STRIP_HTML, KEY_TRIM, KEY_NFC, KEY_FIRST_TOKEN, KEY_STRIP_FURIGANA_BR
     global WATCH_NIDS
     global KANJI_GATE_ENABLED, KANJI_GATE_BEHAVIOR, KANJI_GATE_STABILITY_AGG
     global KANJI_GATE_VOCAB_NOTE_TYPES
-    global KANJI_GATE_KANJI_NOTE_TYPE, KANJI_GATE_KANJI_FIELD, KANJI_GATE_KANJI_ALT_FIELD, KANJI_GATE_COMPONENTS_FIELD
+    global KANJI_GATE_KANJI_NOTE_TYPE, KANJI_GATE_KANJI_FIELDS
+    global KANJI_GATE_KANJI_FIELD, KANJI_GATE_KANJI_ALT_FIELD, KANJI_GATE_COMPONENTS_FIELD
     global KANJI_GATE_KANJI_RADICAL_FIELD, KANJI_GATE_RADICAL_NOTE_TYPE, KANJI_GATE_RADICAL_FIELD
     global KANJI_GATE_KANJI_THRESHOLD, KANJI_GATE_COMPONENT_THRESHOLD
-    global CARD_SORTER_ENABLED, CARD_SORTER_RUN_ON_ADD, CARD_SORTER_RUN_ON_SYNC_START, CARD_SORTER_RUN_ON_SYNC_FINISH
+    global CARD_SORTER_ENABLED, CARD_SORTER_RUN_ON_ADD, CARD_SORTER_RUN_ON_SYNC
     global CARD_SORTER_EXCLUDE_DECKS, CARD_SORTER_EXCLUDE_TAGS, CARD_SORTER_NOTE_TYPES
 
     CFG = _load_config()
 
     _dbg = CFG.get("debug", {})
+    level_allowed = {"trace", "debug", "info", "warn", "error"}
     if isinstance(_dbg, dict):
         DEBUG = bool(_dbg.get("enabled", False))
         DEBUG_VERIFY_SUSPENSION = bool(_dbg.get("verify_suspension", False))
+        DEBUG_SHOW_RESTART_BUTTON = bool(_dbg.get("show_restart_button", False))
+        _lvl = str(_dbg.get("level", "debug")).strip().lower()
+        DEBUG_LEVEL = _lvl if _lvl in level_allowed else "debug"
+        _mlogs = _dbg.get("module_logs", {})
+        if isinstance(_mlogs, dict):
+            DEBUG_MODULE_LOGS = {str(k): bool(v) for k, v in _mlogs.items() if str(k).strip()}
+        else:
+            DEBUG_MODULE_LOGS = {}
+        _mlevels = _dbg.get("module_levels", {})
+        if isinstance(_mlevels, dict):
+            out_levels: dict[str, str] = {}
+            for k, v in _mlevels.items():
+                key = str(k).strip()
+                lvl = str(v).strip().lower()
+                if key and lvl in level_allowed:
+                    out_levels[key] = lvl
+            DEBUG_MODULE_LEVELS = out_levels
+        else:
+            DEBUG_MODULE_LEVELS = {}
     else:
         DEBUG = bool(_dbg)
         DEBUG_VERIFY_SUSPENSION = False
+        DEBUG_SHOW_RESTART_BUTTON = False
+        DEBUG_LEVEL = "debug"
+        DEBUG_MODULE_LOGS = {}
+        DEBUG_MODULE_LEVELS = {}
 
     try:
         WATCH_NIDS = set(
@@ -137,28 +172,44 @@ def reload_config() -> None:
 
     RUN_ON_SYNC = bool(cfg_get("run_on_sync", True))
     RUN_ON_UI = bool(cfg_get("run_on_ui", True))
+    RESTORE_MAIN_WINDOW_GEOMETRY = bool(cfg_get("window_restore.enabled", True))
 
     STICKY_UNLOCK = bool(cfg_get("sticky_unlock", True))
-    STABILITY_DEFAULT_THRESHOLD = float(cfg_get("stability.default_threshold", 2.5))
-    STABILITY_AGG = str(cfg_get("stability.aggregation", "min")).lower().strip()
+    STABILITY_DEFAULT_THRESHOLD = 14.0
+    STABILITY_AGG = "min"
     NOTETYPES_INSTALLED = bool(cfg_get("installer.notetypes_installed", False))
-    NOTE_LINKER_ENABLED = bool(cfg_get("note_linker.enabled", True))
-    NOTE_LINKER_RULES = cfg_get("note_linker.rules", {}) or {}
-    NOTE_LINKER_COPY_LABEL_FIELD = str(cfg_get("note_linker.copy_label_field", "")).strip()
+    MASS_LINKER_ENABLED = bool(cfg_get("mass_linker.enabled", True))
+    MASS_LINKER_RULES = cfg_get("mass_linker.rules", {}) or {}
+    MASS_LINKER_COPY_LABEL_FIELD = str(
+        cfg_get("mass_linker.label_field", cfg_get("mass_linker.copy_label_field", ""))
+    ).strip()
 
     FAMILY_GATE_ENABLED = bool(cfg_get("family_gate.enabled", True))
     FAMILY_LINK_ENABLED = bool(cfg_get("family_gate.link_family_member", False))
-    FAMILY_LINK_CSS_SELECTOR = str(cfg_get("family_gate.link_css_selector", "")).strip()
     FAMILY_FIELD = str(cfg_get("family_gate.family.field", "FamilyID"))
     FAMILY_SEP = str(cfg_get("family_gate.family.separator", ";"))
     FAMILY_DEFAULT_PRIO = int(cfg_get("family_gate.family.default_prio", 0))
     FAMILY_NOTE_TYPES = cfg_get("family_gate.note_types", {}) or {}
 
+    CARD_STAGES_ENABLED = bool(cfg_get("card_stages.enabled", True))
+    CARD_STAGES_RUN_ON_SYNC = bool(cfg_get("card_stages.run_on_sync", True))
+    CARD_STAGES_NOTE_TYPES = cfg_get(
+        "card_stages.note_types", cfg_get("family_gate.note_types", {})
+    ) or {}
+
     EXAMPLE_GATE_ENABLED = bool(cfg_get("example_gate.enabled", True))
     VOCAB_DECK = str(cfg_get("example_gate.vocab_deck", "")).strip()
     EXAMPLE_DECK = str(cfg_get("example_gate.example_deck", "")).strip()
-    VOCAB_KEY_FIELD = str(cfg_get("example_gate.vocab_key_field", "Vocab"))
-    EXAMPLE_KEY_FIELD = str(cfg_get("example_gate.example_key_field", "Vocab"))
+    _example_key = str(
+        cfg_get(
+            "example_gate.key_field",
+            cfg_get("example_gate.example_key_field", cfg_get("example_gate.vocab_key_field", "Vocab")),
+        )
+    ).strip()
+    if not _example_key:
+        _example_key = "Vocab"
+    VOCAB_KEY_FIELD = _example_key
+    EXAMPLE_KEY_FIELD = _example_key
 
     EX_STAGE_SEP = str(cfg_get("example_gate.example_stage_syntax.separator", "@"))
     EX_STAGE_DEFAULT = int(cfg_get("example_gate.example_stage_syntax.default_stage", 0))
@@ -176,28 +227,35 @@ def reload_config() -> None:
     KANJI_GATE_BEHAVIOR = str(cfg_get("kanji_gate.behavior", "kanji_and_components")).strip()
     if not KANJI_GATE_BEHAVIOR:
         KANJI_GATE_BEHAVIOR = "kanji_and_components"
-    KANJI_GATE_STABILITY_AGG = str(cfg_get("kanji_gate.stability_aggregation", "min")).lower().strip()
-    if KANJI_GATE_STABILITY_AGG not in ("min", "max", "avg"):
-        KANJI_GATE_STABILITY_AGG = "min"
+    KANJI_GATE_STABILITY_AGG = "min"
     KANJI_GATE_VOCAB_NOTE_TYPES = cfg_get("kanji_gate.vocab_note_types", {}) or {}
     KANJI_GATE_KANJI_NOTE_TYPE = str(cfg_get("kanji_gate.kanji_note_type", "")).strip()
-    KANJI_GATE_KANJI_FIELD = str(cfg_get("kanji_gate.kanji_field", "")).strip()
-    KANJI_GATE_KANJI_ALT_FIELD = str(cfg_get("kanji_gate.kanji_alt_field", "")).strip()
+    fields_raw = cfg_get("kanji_gate.kanji_fields", None)
+    if isinstance(fields_raw, list):
+        KANJI_GATE_KANJI_FIELDS = [str(x).strip() for x in fields_raw if str(x).strip()]
+    else:
+        KANJI_GATE_KANJI_FIELDS = []
+    if not KANJI_GATE_KANJI_FIELDS:
+        legacy_main = str(cfg_get("kanji_gate.kanji_field", "")).strip()
+        legacy_alt = str(cfg_get("kanji_gate.kanji_alt_field", "")).strip()
+        if legacy_main:
+            KANJI_GATE_KANJI_FIELDS.append(legacy_main)
+        if legacy_alt and legacy_alt not in KANJI_GATE_KANJI_FIELDS:
+            KANJI_GATE_KANJI_FIELDS.append(legacy_alt)
+    KANJI_GATE_KANJI_FIELD = KANJI_GATE_KANJI_FIELDS[0] if KANJI_GATE_KANJI_FIELDS else ""
+    KANJI_GATE_KANJI_ALT_FIELD = KANJI_GATE_KANJI_FIELDS[1] if len(KANJI_GATE_KANJI_FIELDS) > 1 else ""
     KANJI_GATE_COMPONENTS_FIELD = str(cfg_get("kanji_gate.components_field", "")).strip()
     KANJI_GATE_KANJI_RADICAL_FIELD = str(cfg_get("kanji_gate.kanji_radical_field", "")).strip()
     KANJI_GATE_RADICAL_NOTE_TYPE = str(cfg_get("kanji_gate.radical_note_type", "")).strip()
     KANJI_GATE_RADICAL_FIELD = str(cfg_get("kanji_gate.radical_field", "")).strip()
     KANJI_GATE_KANJI_THRESHOLD = float(
-        cfg_get("kanji_gate.kanji_threshold", STABILITY_DEFAULT_THRESHOLD)
+        cfg_get("kanji_gate.kanji_threshold", 14.0)
     )
-    KANJI_GATE_COMPONENT_THRESHOLD = float(
-        cfg_get("kanji_gate.component_threshold", STABILITY_DEFAULT_THRESHOLD)
-    )
+    KANJI_GATE_COMPONENT_THRESHOLD = 14.0
 
     CARD_SORTER_ENABLED = bool(cfg_get("card_sorter.enabled", True))
     CARD_SORTER_RUN_ON_ADD = bool(cfg_get("card_sorter.run_on_add_note", True))
-    CARD_SORTER_RUN_ON_SYNC_START = bool(cfg_get("card_sorter.run_on_sync_start", True))
-    CARD_SORTER_RUN_ON_SYNC_FINISH = bool(cfg_get("card_sorter.run_on_sync_finish", True))
+    CARD_SORTER_RUN_ON_SYNC = bool(cfg_get("card_sorter.run_on_sync", True))
     CARD_SORTER_EXCLUDE_DECKS = list(cfg_get("card_sorter.exclude_decks", []) or [])
     CARD_SORTER_EXCLUDE_TAGS = list(cfg_get("card_sorter.exclude_tags", []) or [])
     CARD_SORTER_NOTE_TYPES = cfg_get("card_sorter.note_types", {}) or {}
@@ -251,12 +309,217 @@ def reload_config() -> None:
         col = mw.col
         if col:
             FAMILY_NOTE_TYPES = _map_dict_keys(col, FAMILY_NOTE_TYPES)
+            CARD_STAGES_NOTE_TYPES = _map_dict_keys(col, CARD_STAGES_NOTE_TYPES)
             KANJI_GATE_VOCAB_NOTE_TYPES = _map_dict_keys(col, KANJI_GATE_VOCAB_NOTE_TYPES)
             CARD_SORTER_NOTE_TYPES = _map_dict_keys(col, CARD_SORTER_NOTE_TYPES)
             if KANJI_GATE_KANJI_NOTE_TYPE:
                 KANJI_GATE_KANJI_NOTE_TYPE = _note_type_id_from_ident(col, KANJI_GATE_KANJI_NOTE_TYPE)
             if KANJI_GATE_RADICAL_NOTE_TYPE:
                 KANJI_GATE_RADICAL_NOTE_TYPE = _note_type_id_from_ident(col, KANJI_GATE_RADICAL_NOTE_TYPE)
+
+
+def migrate_legacy_keys() -> bool:
+    cfg = _load_config()
+    if not isinstance(cfg, dict):
+        return False
+
+    changed = False
+
+    legacy_linker = cfg.get("note_linker")
+    if isinstance(legacy_linker, dict):
+        cur_mass = cfg.get("mass_linker")
+        mass: dict[str, Any] = dict(cur_mass) if isinstance(cur_mass, dict) else {}
+
+        if "enabled" not in mass and "enabled" in legacy_linker:
+            mass["enabled"] = bool(legacy_linker.get("enabled"))
+            changed = True
+        if "label_field" not in mass and "copy_label_field" in legacy_linker:
+            mass["label_field"] = str(legacy_linker.get("copy_label_field") or "").strip()
+            changed = True
+
+        legacy_rules = legacy_linker.get("rules")
+        if isinstance(legacy_rules, dict):
+            mass_rules = mass.get("rules")
+            mass_rules_out: dict[str, Any] = (
+                dict(mass_rules) if isinstance(mass_rules, dict) else {}
+            )
+            for nt_id, rule in legacy_rules.items():
+                key = str(nt_id)
+                if key not in mass_rules_out:
+                    mass_rules_out[key] = rule
+                    changed = True
+            mass["rules"] = mass_rules_out
+
+        if cfg.get("mass_linker") != mass:
+            cfg["mass_linker"] = mass
+            changed = True
+
+        if "note_linker" in cfg:
+            del cfg["note_linker"]
+            changed = True
+
+    mass_linker = cfg.get("mass_linker")
+    if isinstance(mass_linker, dict):
+        mass_out = dict(mass_linker)
+        if "label_field" not in mass_out and "copy_label_field" in mass_out:
+            mass_out["label_field"] = str(mass_out.get("copy_label_field") or "").strip()
+            changed = True
+        if "copy_label_field" in mass_out:
+            del mass_out["copy_label_field"]
+            changed = True
+        if mass_out != mass_linker:
+            cfg["mass_linker"] = mass_out
+            changed = True
+
+    family = cfg.get("family_gate")
+    card_stages = cfg.get("card_stages")
+    card_stages_out: dict[str, Any] = dict(card_stages) if isinstance(card_stages, dict) else {}
+
+    if "enabled" not in card_stages_out:
+        card_stages_out["enabled"] = True
+        changed = True
+    if "run_on_sync" not in card_stages_out:
+        card_stages_out["run_on_sync"] = True
+        changed = True
+    if "note_types" not in card_stages_out:
+        card_stages_out["note_types"] = {}
+        changed = True
+
+    if isinstance(family, dict):
+        family_out = dict(family)
+        if "link_css_selector" in family_out:
+            del family_out["link_css_selector"]
+            changed = True
+
+        fam_note_types = family_out.get("note_types")
+        if isinstance(fam_note_types, dict):
+            has_stage_payload = any(
+                isinstance(v, dict) and isinstance(v.get("stages"), list)
+                for v in fam_note_types.values()
+            )
+            if has_stage_payload and not isinstance(card_stages_out.get("note_types"), dict):
+                card_stages_out["note_types"] = dict(fam_note_types)
+                changed = True
+            elif has_stage_payload and not card_stages_out.get("note_types"):
+                card_stages_out["note_types"] = dict(fam_note_types)
+                changed = True
+
+            fam_note_types_out: dict[str, Any] = {}
+            for nt_id in fam_note_types.keys():
+                sid = str(nt_id).strip()
+                if sid:
+                    fam_note_types_out[sid] = {}
+            if fam_note_types_out != fam_note_types:
+                family_out["note_types"] = fam_note_types_out
+                changed = True
+
+        if family_out != family:
+            cfg["family_gate"] = family_out
+            changed = True
+
+    if not isinstance(cfg.get("card_stages"), dict) or cfg.get("card_stages") != card_stages_out:
+        cfg["card_stages"] = card_stages_out
+        changed = True
+
+    example = cfg.get("example_gate")
+    if isinstance(example, dict):
+        ex_out = dict(example)
+        key_field = str(
+            ex_out.get(
+                "key_field",
+                ex_out.get("example_key_field", ex_out.get("vocab_key_field", "Vocab")),
+            )
+            or "Vocab"
+        ).strip()
+        if not key_field:
+            key_field = "Vocab"
+        if ex_out.get("key_field") != key_field:
+            ex_out["key_field"] = key_field
+            changed = True
+        if "vocab_key_field" in ex_out:
+            del ex_out["vocab_key_field"]
+            changed = True
+        if "example_key_field" in ex_out:
+            del ex_out["example_key_field"]
+            changed = True
+        if ex_out != example:
+            cfg["example_gate"] = ex_out
+            changed = True
+
+    kanji = cfg.get("kanji_gate")
+    if isinstance(kanji, dict):
+        kg_out = dict(kanji)
+        if "kanji_fields" not in kg_out:
+            fields: list[str] = []
+            first = str(kg_out.get("kanji_field") or "").strip()
+            second = str(kg_out.get("kanji_alt_field") or "").strip()
+            if first:
+                fields.append(first)
+            if second and second not in fields:
+                fields.append(second)
+            kg_out["kanji_fields"] = fields
+            changed = True
+        if "kanji_field" in kg_out:
+            del kg_out["kanji_field"]
+            changed = True
+        if "kanji_alt_field" in kg_out:
+            del kg_out["kanji_alt_field"]
+            changed = True
+        if "stability_aggregation" in kg_out:
+            del kg_out["stability_aggregation"]
+            changed = True
+        if "component_threshold" in kg_out:
+            del kg_out["component_threshold"]
+            changed = True
+        if kg_out != kanji:
+            cfg["kanji_gate"] = kg_out
+            changed = True
+
+    card_sorter = cfg.get("card_sorter")
+    if isinstance(card_sorter, dict):
+        cs_out = dict(card_sorter)
+        if "run_on_sync" not in cs_out:
+            start = bool(cs_out.get("run_on_sync_start", True))
+            finish = bool(cs_out.get("run_on_sync_finish", True))
+            cs_out["run_on_sync"] = bool(start or finish)
+            changed = True
+        if "run_on_sync_start" in cs_out:
+            del cs_out["run_on_sync_start"]
+            changed = True
+        if "run_on_sync_finish" in cs_out:
+            del cs_out["run_on_sync_finish"]
+            changed = True
+        note_types = cs_out.get("note_types")
+        if isinstance(note_types, dict):
+            nts_out: dict[str, Any] = {}
+            for nt_id, nt_cfg in note_types.items():
+                if not isinstance(nt_cfg, dict):
+                    nts_out[str(nt_id)] = nt_cfg
+                    continue
+                nt_out = dict(nt_cfg)
+                if str(nt_out.get("mode", "by_template")).strip() == "by_template":
+                    if "default_deck" in nt_out:
+                        del nt_out["default_deck"]
+                        changed = True
+                nts_out[str(nt_id)] = nt_out
+            if nts_out != note_types:
+                cs_out["note_types"] = nts_out
+                changed = True
+        if cs_out != card_sorter:
+            cfg["card_sorter"] = cs_out
+            changed = True
+
+    if "stability" in cfg:
+        del cfg["stability"]
+        changed = True
+
+    if changed:
+        try:
+            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2, ensure_ascii=False)
+        except Exception:
+            return False
+    return changed
 
 
 def migrate_note_type_names_to_ids() -> bool:
@@ -332,9 +595,10 @@ def migrate_note_type_names_to_ids() -> bool:
             changed = True
 
     _map_dict_keys_path("family_gate.note_types")
+    _map_dict_keys_path("card_stages.note_types")
     _map_dict_keys_path("kanji_gate.vocab_note_types")
     _map_dict_keys_path("card_sorter.note_types")
-    _map_dict_keys_path("note_linker.rules")
+    _map_dict_keys_path("mass_linker.rules")
     _map_value_path("kanji_gate.kanji_note_type")
     _map_value_path("kanji_gate.radical_note_type")
 
@@ -433,13 +697,13 @@ def migrate_template_names_to_ords() -> bool:
             changed = True
         return out
 
-    # family_gate.note_types -> stages templates
-    fam = _get_path("family_gate.note_types")
-    if isinstance(fam, dict):
-        fam_out: dict[str, Any] = {}
-        for nt_id, nt_cfg in fam.items():
+    # card_stages.note_types -> stages templates
+    card_stages = _get_path("card_stages.note_types")
+    if isinstance(card_stages, dict):
+        card_stages_out: dict[str, Any] = {}
+        for nt_id, nt_cfg in card_stages.items():
             if not isinstance(nt_cfg, dict):
-                fam_out[str(nt_id)] = nt_cfg
+                card_stages_out[str(nt_id)] = nt_cfg
                 continue
             stages = nt_cfg.get("stages") or []
             out_stages: list[Any] = []
@@ -457,13 +721,13 @@ def migrate_template_names_to_ords() -> bool:
                 changed = True
             nt_new = dict(nt_cfg)
             nt_new["stages"] = out_stages
-            fam_out[str(nt_id)] = nt_new
-        if fam_out != fam:
-            _cfg_set(cfg, "family_gate.note_types", fam_out)
+            card_stages_out[str(nt_id)] = nt_new
+        if card_stages_out != card_stages:
+            _cfg_set(cfg, "card_stages.note_types", card_stages_out)
             changed = True
 
-    # note_linker.rules -> templates
-    rules = _get_path("note_linker.rules")
+    # mass_linker.rules -> templates
+    rules = _get_path("mass_linker.rules")
     if isinstance(rules, dict):
         rules_out: dict[str, Any] = {}
         for nt_id, rule in rules.items():
@@ -478,7 +742,7 @@ def migrate_template_names_to_ords() -> bool:
             else:
                 rules_out[str(nt_id)] = rule
         if rules_out != rules:
-            _cfg_set(cfg, "note_linker.rules", rules_out)
+            _cfg_set(cfg, "mass_linker.rules", rules_out)
             changed = True
 
     # kanji_gate.vocab_note_types -> base/kanji templates

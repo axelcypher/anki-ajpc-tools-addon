@@ -7,14 +7,14 @@ import time
 import traceback
 from typing import Any
 
-from anki.collection import Collection, OpChanges
+from anki.collection import Collection
 from aqt import mw
-from aqt.operations import CollectionOp
 from aqt.qt import (
     QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
+    QFrame,
     QLabel,
     QPlainTextEdit,
     QStandardItem,
@@ -23,9 +23,11 @@ from aqt.qt import (
     Qt,
     QVBoxLayout,
     QWidget,
+    QSizePolicy,
 )
-from aqt.utils import askUser, showInfo, show_info, tooltip
+from aqt.utils import askUser, tooltip
 
+from .. import logging as core_logging
 from . import ModuleSpec
 
 ADDON_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -33,12 +35,12 @@ CONFIG_PATH = os.path.join(ADDON_DIR, "config.json")
 
 CFG: dict[str, Any] = {}
 DEBUG = False
+RUN_ON_SYNC = True
 RUN_ON_UI = True
 
 CARD_SORTER_ENABLED = True
 CARD_SORTER_RUN_ON_ADD = True
-CARD_SORTER_RUN_ON_SYNC_START = True
-CARD_SORTER_RUN_ON_SYNC_FINISH = True
+CARD_SORTER_RUN_ON_SYNC = True
 CARD_SORTER_EXCLUDE_DECKS: list[str] = []
 CARD_SORTER_EXCLUDE_TAGS: list[str] = []
 CARD_SORTER_NOTE_TYPES: dict[str, Any] = {}
@@ -73,9 +75,9 @@ def _cfg_set(cfg: dict[str, Any], path: str, value: Any) -> None:
 
 
 def reload_config() -> None:
-    global CFG, DEBUG, RUN_ON_UI
+    global CFG, DEBUG, RUN_ON_SYNC, RUN_ON_UI
     global CARD_SORTER_ENABLED, CARD_SORTER_RUN_ON_ADD
-    global CARD_SORTER_RUN_ON_SYNC_START, CARD_SORTER_RUN_ON_SYNC_FINISH
+    global CARD_SORTER_RUN_ON_SYNC
     global CARD_SORTER_EXCLUDE_DECKS, CARD_SORTER_EXCLUDE_TAGS, CARD_SORTER_NOTE_TYPES
 
     CFG = _load_config()
@@ -86,12 +88,12 @@ def reload_config() -> None:
     else:
         DEBUG = bool(_dbg)
 
+    RUN_ON_SYNC = bool(cfg_get("run_on_sync", True))
     RUN_ON_UI = bool(cfg_get("run_on_ui", True))
 
     CARD_SORTER_ENABLED = bool(cfg_get("card_sorter.enabled", True))
     CARD_SORTER_RUN_ON_ADD = bool(cfg_get("card_sorter.run_on_add_note", True))
-    CARD_SORTER_RUN_ON_SYNC_START = bool(cfg_get("card_sorter.run_on_sync_start", True))
-    CARD_SORTER_RUN_ON_SYNC_FINISH = bool(cfg_get("card_sorter.run_on_sync_finish", True))
+    CARD_SORTER_RUN_ON_SYNC = bool(cfg_get("card_sorter.run_on_sync", True))
     CARD_SORTER_EXCLUDE_DECKS = list(cfg_get("card_sorter.exclude_decks", []) or [])
     CARD_SORTER_EXCLUDE_TAGS = list(cfg_get("card_sorter.exclude_tags", []) or [])
     CARD_SORTER_NOTE_TYPES = cfg_get("card_sorter.note_types", {}) or {}
@@ -165,35 +167,19 @@ DEBUG_LOG_PATH = os.path.join(ADDON_DIR, "ajpc_debug.log")
 
 
 def dbg(*a: Any) -> None:
-    if not config.DEBUG:
-        return
+    core_logging.trace(*a, source="card_sorter")
 
-    try:
-        ts = time.strftime("%H:%M:%S")
-    except Exception:
-        ts = ""
 
-    line = " ".join(str(x) for x in a)
-    msg = f"[CardSorter {ts}] {line}"
+def log_info(*a: Any) -> None:
+    core_logging.info(*a, source="card_sorter")
 
-    try:
-        import threading
 
-        if mw is not None and threading.current_thread() is not threading.main_thread():
-            mw.taskman.run_on_main(lambda m=msg: print(m, flush=True))
-        else:
-            print(msg, flush=True)
-    except Exception:
-        try:
-            print(msg, flush=True)
-        except Exception:
-            pass
+def log_warn(*a: Any) -> None:
+    core_logging.warn(*a, source="card_sorter")
 
-    try:
-        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(msg + "\n")
-    except Exception:
-        pass
+
+def log_error(*a: Any) -> None:
+    core_logging.error(*a, source="card_sorter")
 
 
 def _get_deck_names() -> list[str]:
@@ -432,6 +418,14 @@ def _normalize_list(items: list[Any]) -> list[str]:
     return out
 
 
+def _info_box(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+    label.setStyleSheet("padding: 6px; border: 1px solid #999; border-radius: 4px;")
+    return label
+
+
 def _anki_quote(s: str) -> str:
     return (s or "").replace("\\", "\\\\").replace('"', '\\"')
 
@@ -473,6 +467,7 @@ def note_ids_for_note_types(col: Collection, note_types: list[Any]) -> list[int]
             if config.DEBUG:
                 dbg("note_ids_for_note_types failed", nt)
                 dbg(traceback.format_exc())
+            log_warn("note_ids_for_note_types failed", nt)
             continue
     return nids
 
@@ -536,7 +531,7 @@ def _ensure_decks(target_decks: set[str]) -> set[str]:
             mw.col.decks.id(deck_name)
         else:
             skipped.add(deck_name)
-            dbg("card_sorter: deck skipped", deck_name)
+            log_warn("card_sorter: deck skipped", deck_name)
     return skipped
 
 
@@ -567,23 +562,18 @@ def _get_deck_id(deck_name: str, deck_id_cache: dict[str, int], skipped_decks: s
     return deck_id
 
 
-def _apply_moves(cards_in_deck: dict[int, list[int]]) -> int:
+def _apply_moves(col: Collection, cards_in_deck: dict[int, list[int]]) -> int:
     moved = 0
     for deck_id, card_ids in cards_in_deck.items():
         if not card_ids:
             continue
         unique_ids = list(set(card_ids))
         moved += len(unique_ids)
-
-        def op(col, cids=unique_ids, did=deck_id):
-            col.db.execute(
-                f"UPDATE cards SET did = ? WHERE id IN ({','.join('?' * len(cids))})",
-                did,
-                *cids,
-            )
-            return OpChanges()
-
-        CollectionOp(mw, op).run_in_background()
+        col.db.execute(
+            f"UPDATE cards SET did = ? WHERE id IN ({','.join('?' * len(unique_ids))})",
+            deck_id,
+            *unique_ids,
+        )
     return moved
 
 
@@ -637,7 +627,7 @@ def _sort_notes(notes: list, note_type_cfgs: dict[str, dict[str, Any]], skipped_
             if card.did != deck_id:
                 cards_in_deck.setdefault(deck_id, []).append(card.id)
 
-    cards_moved = _apply_moves(cards_in_deck)
+    cards_moved = _apply_moves(mw.col, cards_in_deck)
     if config.DEBUG:
         dbg(
             "card_sorter: done",
@@ -674,9 +664,9 @@ def sort_all(*, reason: str = "manual") -> dict[str, int]:
     config.reload_config()
     if not config.CARD_SORTER_ENABLED:
         return {}
-    if reason == "sync_start" and not config.CARD_SORTER_RUN_ON_SYNC_START:
+    if reason == "sync" and not config.RUN_ON_SYNC:
         return {}
-    if reason == "sync_finish" and not config.CARD_SORTER_RUN_ON_SYNC_FINISH:
+    if reason == "sync" and not config.CARD_SORTER_RUN_ON_SYNC:
         return {}
     if reason == "manual" and not config.RUN_ON_UI:
         return {}
@@ -685,7 +675,7 @@ def sort_all(*, reason: str = "manual") -> dict[str, int]:
 
     note_type_cfgs = _get_note_type_cfgs()
     if not note_type_cfgs:
-        dbg("card_sorter: no note types configured")
+        log_warn("card_sorter: no note types configured")
         return {}
 
     skipped_decks = _ensure_decks(_gather_target_decks(note_type_cfgs))
@@ -696,17 +686,11 @@ def sort_all(*, reason: str = "manual") -> dict[str, int]:
 
 
 def _notify_info(msg: str, *, reason: str = "manual") -> None:
-    if reason == "sync_start" or reason == "sync_finish":
-        tooltip(msg)
-    else:
-        show_info(msg)
+    tooltip(msg, period=2500)
 
 
 def _notify_error(msg: str, *, reason: str = "manual") -> None:
-    if reason == "sync_start" or reason == "sync_finish":
-        tooltip(msg)
-    else:
-        showInfo(msg)
+    tooltip(msg, period=2500)
 
 
 def run_card_sorter(*, reason: str = "manual") -> None:
@@ -715,29 +699,36 @@ def run_card_sorter(*, reason: str = "manual") -> None:
         "reloaded config",
         "debug=",
         config.DEBUG,
+        "run_on_sync=",
+        config.RUN_ON_SYNC,
         "run_on_ui=",
         config.RUN_ON_UI,
     )
 
     if not mw or not mw.col:
+        log_error("card_sorter: no collection loaded")
         _notify_error("No collection loaded.", reason=reason)
         return
 
+    if reason == "sync" and not config.RUN_ON_SYNC:
+        log_info("card_sorter: skip (run_on_sync disabled)")
+        return
+    if reason == "sync" and not config.CARD_SORTER_RUN_ON_SYNC:
+        log_info("card_sorter: skip (card_sorter.run_on_sync disabled)")
+        return
     if reason == "manual" and not config.RUN_ON_UI:
-        dbg("card_sorter: skip (run_on_ui disabled)")
+        log_info("card_sorter: skip (run_on_ui disabled)")
         return
 
     try:
         result = sort_all(reason=reason) or {}
     except Exception as err:
         tb = "".join(traceback.format_exception(type(err), err, err.__traceback__))
+        log_error("Card Sorter failed", repr(err))
         if config.DEBUG:
             dbg("CARD_SORTER_FAILURE", repr(err))
             dbg(tb)
         _notify_error("Card Sorter failed:\n" + tb, reason=reason)
-        return
-
-    if reason != "manual":
         return
 
     msg = (
@@ -748,6 +739,12 @@ def run_card_sorter(*, reason: str = "manual") -> None:
     )
     if config.DEBUG:
         dbg("CARD_SORTER_RESULT", msg)
+    log_info(
+        "Card Sorter finished",
+        f"notes_processed={result.get('notes_processed', 0)}",
+        f"cards_moved={result.get('cards_moved', 0)}",
+        f"decks_touched={result.get('decks_touched', 0)}",
+    )
     _notify_info(msg, reason=reason)
 
 
@@ -770,25 +767,19 @@ def _build_settings(ctx):
     card_sorter_enabled_cb.setChecked(config.CARD_SORTER_ENABLED)
     card_sorter_form.addRow("Enabled", card_sorter_enabled_cb)
 
+    card_sorter_run_on_sync_cb = QCheckBox()
+    card_sorter_run_on_sync_cb.setChecked(config.CARD_SORTER_RUN_ON_SYNC)
+    card_sorter_form.addRow("Run on sync", card_sorter_run_on_sync_cb)
+
     card_sorter_run_on_add_cb = QCheckBox()
     card_sorter_run_on_add_cb.setChecked(config.CARD_SORTER_RUN_ON_ADD)
     card_sorter_form.addRow("Run on add note", card_sorter_run_on_add_cb)
 
-    card_sorter_run_on_sync_start_cb = QCheckBox()
-    card_sorter_run_on_sync_start_cb.setChecked(config.CARD_SORTER_RUN_ON_SYNC_START)
-    card_sorter_form.addRow("Run on sync start", card_sorter_run_on_sync_start_cb)
+    separator = QFrame()
+    separator.setFrameShape(QFrame.Shape.HLine)
+    separator.setFrameShadow(QFrame.Shadow.Sunken)
 
-    card_sorter_run_on_sync_finish_cb = QCheckBox()
-    card_sorter_run_on_sync_finish_cb.setChecked(config.CARD_SORTER_RUN_ON_SYNC_FINISH)
-    card_sorter_form.addRow("Run on sync finish", card_sorter_run_on_sync_finish_cb)
-
-    card_sorter_exclude_deck_names = sorted(
-        set(deck_names + list(config.CARD_SORTER_EXCLUDE_DECKS or []))
-    )
-    card_sorter_exclude_decks_combo, card_sorter_exclude_decks_model = _make_checkable_combo(
-        card_sorter_exclude_deck_names, list(config.CARD_SORTER_EXCLUDE_DECKS or [])
-    )
-    card_sorter_form.addRow("Exclude decks", card_sorter_exclude_decks_combo)
+    card_sorter_form.addWidget(separator)
 
     card_sorter_note_type_items = _merge_note_type_items(
         _get_note_type_items(), list((config.CARD_SORTER_NOTE_TYPES or {}).keys())
@@ -798,6 +789,14 @@ def _build_settings(ctx):
     )
     card_sorter_form.addRow("Note types", card_sorter_note_type_combo)
 
+    card_sorter_exclude_deck_names = sorted(
+        set(deck_names + list(config.CARD_SORTER_EXCLUDE_DECKS or []))
+    )
+    card_sorter_exclude_decks_combo, card_sorter_exclude_decks_model = _make_checkable_combo(
+        card_sorter_exclude_deck_names, list(config.CARD_SORTER_EXCLUDE_DECKS or [])
+    )
+    card_sorter_form.addRow("Exclude decks", card_sorter_exclude_decks_combo)
+
     card_sorter_exclude_tags_label = QLabel("Exclude tags (one per line or comma-separated)")
     card_sorter_exclude_tags_edit = QPlainTextEdit()
     if config.CARD_SORTER_EXCLUDE_TAGS:
@@ -805,6 +804,17 @@ def _build_settings(ctx):
     card_sorter_exclude_tags_edit.setMaximumHeight(60)
     general_layout.addWidget(card_sorter_exclude_tags_label)
     general_layout.addWidget(card_sorter_exclude_tags_edit)
+    general_layout.addStretch(1)
+    general_layout.addWidget(
+        _info_box(
+            "Enabled: turns Card Sorter on/off.\n"
+            "Run on sync: runs sorter automatically at sync start.\n"
+            "Note types: only these note types are processed.\n"
+            "Exclude decks: cards in these decks are never moved.\n"
+            "Exclude tags: notes with any listed tag are skipped.\n"
+            "Rules are configured per selected note type in the Rules tab."
+        )
+    )
 
     card_sorter_tabs.addTab(general_tab, "General")
 
@@ -889,8 +899,8 @@ def _build_settings(ctx):
             tab_layout.addLayout(form)
 
             mode_combo = QComboBox()
-            mode_combo.addItem("By Template", "by_template")
-            mode_combo.addItem("All", "all")
+            mode_combo.addItem("sort by template", "by_template")
+            mode_combo.addItem("sort all in same deck", "all")
             mode_val = str(cfg.get("mode", "by_template")).strip() or "by_template"
             mode_idx = mode_combo.findData(mode_val)
             if mode_idx < 0:
@@ -898,9 +908,10 @@ def _build_settings(ctx):
             mode_combo.setCurrentIndex(mode_idx)
             form.addRow("Mode", mode_combo)
 
+            default_deck_label = QLabel("Deck")
             default_deck_combo = QComboBox()
             _populate_deck_combo(default_deck_combo, deck_names, cfg.get("default_deck", ""))
-            form.addRow("Default deck", default_deck_combo)
+            form.addRow(default_deck_label, default_deck_combo)
 
             template_group = QGroupBox("Templates")
             template_layout = QFormLayout()
@@ -920,13 +931,32 @@ def _build_settings(ctx):
 
             tab_layout.addWidget(template_group)
 
-            def _toggle_template_group(_idx, combo=mode_combo, box=template_group) -> None:
-                box.setVisible(_combo_value(combo) == "by_template")
+            def _toggle_template_group(
+                _idx,
+                combo=mode_combo,
+                box=template_group,
+                deck_label=default_deck_label,
+                deck_combo=default_deck_combo,
+            ) -> None:
+                by_template = _combo_value(combo) == "by_template"
+                box.setVisible(by_template)
+                deck_label.setVisible(not by_template)
+                deck_combo.setVisible(not by_template)
 
             mode_combo.currentIndexChanged.connect(_toggle_template_group)
             _toggle_template_group(0)
 
             tab_layout.addStretch(1)
+            tab_layout.addWidget(
+                _info_box(
+                    "Mode:\n"
+                    "- sort by template: assign target deck per template.\n"
+                    "- sort all in same deck: move all cards of the note to one deck.\n"
+                    "Deck: only used in 'sort all in same deck'.\n"
+                    "Templates: only used in 'sort by template'.\n"
+                    "Template IDs are saved by ord for stability."
+                )
+            )
             card_sorter_rule_tabs.addTab(tab, _note_type_label(nt_id))
             card_sorter_note_type_widgets[nt_id] = {
                 "mode_combo": mode_combo,
@@ -969,24 +999,14 @@ def _build_settings(ctx):
                         f"Card Sorter: no template mapping for note type: {_note_type_label(nt_id)}"
                     )
                     continue
-                payload = {"mode": "by_template", "by_template": by_template}
-                if default_deck:
-                    payload["default_deck"] = default_deck
-                card_sorter_cfg[nt_id] = payload
+                card_sorter_cfg[nt_id] = {"mode": "by_template", "by_template": by_template}
 
         card_sorter_exclude_decks = _checked_items(card_sorter_exclude_decks_model)
         card_sorter_exclude_tags = _parse_list_entries(card_sorter_exclude_tags_edit.toPlainText())
 
         config._cfg_set(cfg, "card_sorter.enabled", bool(card_sorter_enabled_cb.isChecked()))
         config._cfg_set(cfg, "card_sorter.run_on_add_note", bool(card_sorter_run_on_add_cb.isChecked()))
-        config._cfg_set(
-            cfg, "card_sorter.run_on_sync_start", bool(card_sorter_run_on_sync_start_cb.isChecked())
-        )
-        config._cfg_set(
-            cfg,
-            "card_sorter.run_on_sync_finish",
-            bool(card_sorter_run_on_sync_finish_cb.isChecked()),
-        )
+        config._cfg_set(cfg, "card_sorter.run_on_sync", bool(card_sorter_run_on_sync_cb.isChecked()))
         config._cfg_set(cfg, "card_sorter.exclude_decks", card_sorter_exclude_decks)
         config._cfg_set(cfg, "card_sorter.exclude_tags", card_sorter_exclude_tags)
         config._cfg_set(cfg, "card_sorter.note_types", card_sorter_cfg)
@@ -1005,19 +1025,14 @@ def _init() -> None:
         try:
             sort_note(note)
         except Exception:
-            if config.DEBUG:
-                dbg("card_sorter: add_cards hook failed")
+            log_warn("card_sorter: add_cards hook failed")
 
     def _on_sync_start() -> None:
-        run_card_sorter(reason="sync_start")
-
-    def _on_sync_finish() -> None:
-        run_card_sorter(reason="sync_finish")
+        run_card_sorter(reason="sync")
 
     if mw is not None and not getattr(mw, "_ajpc_card_sorter_hooks_installed", False):
         gui_hooks.add_cards_did_add_note.append(_on_add_cards)
         gui_hooks.sync_will_start.append(_on_sync_start)
-        gui_hooks.sync_did_finish.append(_on_sync_finish)
         mw._ajpc_card_sorter_hooks_installed = True
 
 

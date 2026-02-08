@@ -1,14 +1,48 @@
 from __future__ import annotations
 
-from aqt import mw
+from aqt import gui_hooks, mw
 
 from . import config, logging
+from .api import graph_api, note_editor_api, settings_api
 from .modules import discover_modules, iter_run_items, iter_settings_items
 from .ui import menu
 
+_HIDE_CONFIG_FOR_ADDONS = {"ajpc-tools_dev", "ajpc-yomitran_dev"}
+
+
+def _noop_addon_config_action() -> bool:
+    # Prevent Anki's built-in JSON config editor for AJpC add-ons.
+    return True
+
+
+def _on_addons_dialog_selection(dialog, addon_meta) -> None:
+    try:
+        dir_name = str(getattr(addon_meta, "dir_name", "") or "")
+        if dir_name in _HIDE_CONFIG_FOR_ADDONS:
+            dialog.form.config.setEnabled(False)
+    except Exception:
+        return
+
+
+def _install_addons_dialog_config_guard() -> None:
+    if mw is None or not getattr(mw, "addonManager", None):
+        return
+    mgr = mw.addonManager
+    for addon_name in _HIDE_CONFIG_FOR_ADDONS:
+        try:
+            mgr.setConfigAction(addon_name, _noop_addon_config_action)
+        except Exception:
+            continue
+    if not getattr(mw, "_ajpc_addons_cfg_guard_installed", False):
+        gui_hooks.addons_dialog_did_change_selected_addon.append(_on_addons_dialog_selection)
+        mw._ajpc_addons_cfg_guard_installed = True
+
+
+config.migrate_legacy_keys()
 config.migrate_note_type_names_to_ids()
 config.migrate_template_names_to_ords()
 config.reload_config()
+_install_addons_dialog_config_guard()
 logging.dbg(
     "loaded config",
     "debug=",
@@ -17,9 +51,23 @@ logging.dbg(
     config.RUN_ON_SYNC,
     "run_on_ui=",
     config.RUN_ON_UI,
+    source="__init__",
 )
 
 modules = discover_modules()
+
+settings_api.install_settings_api()
+graph_api.install_graph_api()
+note_editor_api.install_note_editor_api()
+
+
+def _on_profile_open(*_args, **_kwargs) -> None:
+    settings_api.install_settings_api()
+    graph_api.install_graph_api()
+    note_editor_api.install_note_editor_api()
+
+
+gui_hooks.profile_did_open.append(_on_profile_open)
 
 
 for mod in modules:
@@ -27,7 +75,7 @@ for mod in modules:
         try:
             mod.init()
         except Exception as exc:
-            logging.dbg("module init failed", mod.id, repr(exc))
+            logging.error("module init failed", mod.id, repr(exc), source="__init__")
 
 menu.install_menu(
     run_items=iter_run_items(modules),
