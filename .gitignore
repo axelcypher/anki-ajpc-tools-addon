@@ -3,6 +3,7 @@
 /build/
 /dist/
 /.vscode/
+/vendor/ 
 
 *.pyc
 *.pyo
