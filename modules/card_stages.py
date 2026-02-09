@@ -570,6 +570,18 @@ def card_stages_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
     nids = note_ids_for_note_types(col, note_types)
     dbg("card_stages: candidate notes", len(nids))
 
+    gate_map = None
+    try:
+        from . import family_gate as _family_gate  # type: ignore
+    except Exception:
+        _family_gate = None  # type: ignore
+
+    if _family_gate is not None:
+        try:
+            gate_map = _family_gate.compute_family_gate_open_map(col)
+        except Exception:
+            gate_map = None
+
     to_suspend: list[int] = []
     to_unsuspend: list[int] = []
 
@@ -582,12 +594,15 @@ def card_stages_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
                 continue
             stabs = compute_stage_stabilities(col, note, nt_id)
             prev_stage_ok = True
+            gate_ok = True
+            if gate_map is not None:
+                gate_ok = bool(gate_map.get(nid, True))
 
             for st_idx in range(len(stages)):
                 st_cids = stage_card_ids(note, nt_id, st_idx)
                 if not st_cids:
                     continue
-                should_open = True if st_idx == 0 else prev_stage_ok
+                should_open = gate_ok if st_idx == 0 else (gate_ok and prev_stage_ok)
                 stab_val = stabs[st_idx] if st_idx < len(stabs) else None
                 this_stage_ready = stage_is_ready(nt_id, st_idx, stab_val)
                 st_tag = stage_tag(st_idx)

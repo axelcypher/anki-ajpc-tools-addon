@@ -415,6 +415,64 @@ def _chunks(items: Iterable[int], size: int = 1000) -> Iterable[list[int]]:
         yield buf
 
 
+def _family_gate_card_ids(col: Collection, note, note_type_id: int, card_stages_mod) -> list[int]:
+    try:
+        cards = note.cards()
+    except Exception:
+        return []
+
+    if card_stages_mod is None:
+        return [int(c.id) for c in cards]
+
+    try:
+        stages = card_stages_mod.get_stage_cfg_for_note_type(note_type_id)
+    except Exception:
+        stages = []
+
+    if stages:
+        try:
+            stabs = card_stages_mod.compute_stage_stabilities(col, note, note_type_id)
+        except Exception:
+            stabs = []
+
+        out: list[int] = []
+        prev_stage_ok = True
+        for st_idx in range(len(stages)):
+            should_open = True if st_idx == 0 else prev_stage_ok
+            st_tag = None
+            try:
+                st_tag = card_stages_mod.stage_tag(st_idx)
+            except Exception:
+                st_tag = None
+            st_sticky = bool(config.STICKY_UNLOCK and st_tag and (st_tag in getattr(note, "tags", [])))
+            if should_open or st_sticky:
+                try:
+                    out.extend(
+                        int(cid) for cid in card_stages_mod.stage_card_ids(note, note_type_id, st_idx)
+                    )
+                except Exception:
+                    return [int(c.id) for c in cards]
+            stab_val = stabs[st_idx] if st_idx < len(stabs) else None
+            try:
+                prev_stage_ok = bool(card_stages_mod.stage_is_ready(note_type_id, st_idx, stab_val))
+            except Exception:
+                prev_stage_ok = False
+
+        if not out:
+            return []
+        # De-dupe while preserving order
+        seen: set[int] = set()
+        deduped: list[int] = []
+        for cid in out:
+            if cid in seen:
+                continue
+            seen.add(cid)
+            deduped.append(cid)
+        return deduped
+
+    return [int(c.id) for c in cards]
+
+
 def suspend_cards(col: Collection, cids: list[int]) -> None:
     if not cids:
         return
@@ -751,15 +809,19 @@ class NoteInFamily:
     prio: int
 
 
-def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
+def compute_family_gate_open_map(
+    col: Collection,
+    *,
+    card_stages_mod=None,
+    ui_set=None,
+) -> dict[int, bool] | None:
+    _maybe_reload_config()
     if not config.FAMILY_GATE_ENABLED:
-        log_info("family_gate disabled")
-        return
+        return None
 
     note_types = list(config.FAMILY_NOTE_TYPES.keys())
     if not note_types:
-        log_warn("family_gate: no note_types configured")
-        return
+        return None
 
     nids = note_ids_for_note_types(col, note_types)
     dbg("family_gate: candidate notes", len(nids))
@@ -786,7 +848,7 @@ def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
                     NoteInFamily(nid=nid, note_type_id=nt_id, prio=r.prio)
                 )
 
-            if i % 250 == 0:
+            if ui_set and i % 250 == 0:
                 ui_set(
                     f"FamilyGate: index families... {i}/{len(nids)} (families={len(fam_map)})",
                     i,
@@ -800,22 +862,23 @@ def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
     dbg("family_gate: unique families", len(fam_map))
 
     note_stage0_ready: dict[int, bool] = {}
-    try:
-        from . import card_stages as _card_stages
-    except Exception:
-        _card_stages = None  # type: ignore
+    if card_stages_mod is None:
+        try:
+            from . import card_stages as card_stages_mod  # type: ignore
+        except Exception:
+            card_stages_mod = None  # type: ignore
 
     for i, (nid, (nt_id, _refs)) in enumerate(note_refs.items()):
         try:
             note = col.get_note(nid)
-            if _card_stages is None:
+            if card_stages_mod is None:
                 note_stage0_ready[nid] = True
             else:
-                note_stage0_ready[nid] = bool(_card_stages.note_stage0_ready(col, note))
+                note_stage0_ready[nid] = bool(card_stages_mod.note_stage0_ready(col, note))
         except Exception:
             note_stage0_ready[nid] = False
 
-        if i % 400 == 0:
+        if ui_set and i % 400 == 0:
             ui_set(
                 f"FamilyGate: compute stability... {i}/{len(note_refs)}",
                 i,
@@ -856,23 +919,46 @@ def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
 
             prev_groups_ready = prev_groups_ready and group_stage0_ready_all
 
+    gate_map: dict[int, bool] = {}
+    for nid, (_nt_id, refs) in note_refs.items():
+        effective_gate_open = True
+        for r in refs:
+            ok = bool(family_gate_open.get(r.fid, {}).get(r.prio, False))
+            effective_gate_open = effective_gate_open and ok
+        gate_map[nid] = effective_gate_open
+
+    return gate_map
+
+
+def family_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
+    if not config.FAMILY_GATE_ENABLED:
+        log_info("family_gate disabled")
+        return
+
+    note_types = list(config.FAMILY_NOTE_TYPES.keys())
+    if not note_types:
+        log_warn("family_gate: no note_types configured")
+        return
+
+    try:
+        from . import card_stages as _card_stages
+    except Exception:
+        _card_stages = None  # type: ignore
+
+    gate_map = compute_family_gate_open_map(col, card_stages_mod=_card_stages, ui_set=ui_set)
+    if gate_map is None:
+        return
+
     to_suspend: list[int] = []
     to_unsuspend: list[int] = []
 
-    note_items = list(note_refs.items())
-    for i, (nid, (nt_id, refs)) in enumerate(note_items):
+    note_items = list(gate_map.items())
+    for i, (nid, effective_gate_open) in enumerate(note_items):
         try:
             note = col.get_note(nid)
+            nt_id = int(note.mid)
 
-            effective_gate_open = True
-            gate_parts: list[str] = []
-            for r in refs:
-                ok = bool(family_gate_open.get(r.fid, {}).get(r.prio, False))
-                effective_gate_open = effective_gate_open and ok
-                if config.DEBUG and nid in config.WATCH_NIDS:
-                    gate_parts.append(f"{r.fid}@{r.prio}={ok}")
-
-            cids = [c.id for c in note.cards()]
+            cids = _family_gate_card_ids(col, note, nt_id, _card_stages)
             if not cids:
                 continue
             if effective_gate_open:
