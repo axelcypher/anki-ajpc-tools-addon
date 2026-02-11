@@ -384,12 +384,134 @@ def get_graph_config(*, reload: bool = True) -> dict[str, Any]:
     }
 
 
+def _open_note_editor_for_graph_api(
+    nid: int, *, title: str = "AJpC Note Editor"
+) -> bool:
+    try:
+        from .note_editor_api import open_editor as _open_editor
+
+        return bool(_open_editor(int(nid), title=str(title or "AJpC Note Editor")))
+    except Exception:
+        return False
+
+
+def _is_note_editor_open_for_graph_api(nid: int) -> bool:
+    try:
+        from .note_editor_api import is_open as _is_open
+
+        return bool(_is_open(int(nid)))
+    except Exception:
+        return False
+
+
+def _resolve_dep_tree_nid(
+    nid: int | None = None,
+    *,
+    note_id: int | None = None,
+    id: int | None = None,
+) -> int:
+    candidates = [nid, note_id, id]
+    for value in candidates:
+        try:
+            out = int(value or 0)
+        except Exception:
+            continue
+        if out > 0:
+            return out
+    return 0
+
+
+def get_dependency_tree(
+    nid: int | None = None,
+    *,
+    note_id: int | None = None,
+    id: int | None = None,
+    view_width: int = 0,
+    include_raw: bool = True,
+) -> dict[str, Any]:
+    target_nid = _resolve_dep_tree_nid(nid, note_id=note_id, id=id)
+    if target_nid <= 0:
+        return {"nodes": [], "edges": [], "current_nid": 0}
+
+    try:
+        from ..modules import browser_graph as _bg
+    except Exception:
+        return {"nodes": [], "edges": [], "current_nid": int(target_nid)}
+
+    try:
+        chain_nodes, chain_edges, chain_labels = _bg._family_prio_chain(int(target_nid))  # noqa: SLF001 - shared internal data builder
+    except Exception:
+        return {"nodes": [], "edges": [], "current_nid": int(target_nid)}
+
+    try:
+        payload = _bg._build_prio_chain_payload(  # noqa: SLF001 - shared internal data builder
+            int(target_nid),
+            chain_nodes,
+            chain_edges,
+            chain_labels,
+        )
+    except Exception:
+        payload = {"nodes": [], "edges": [], "current_nid": int(target_nid)}
+
+    if include_raw:
+        payload["raw_nodes"] = sorted(int(x) for x in chain_nodes if int(x) > 0)
+        payload["raw_edges"] = [
+            [int(src), int(dst)]
+            for src, dst in chain_edges
+            if int(src) > 0 and int(dst) > 0
+        ]
+        payload["raw_labels"] = {
+            str(int(k)): str(v)
+            for k, v in (chain_labels or {}).items()
+            if int(k) > 0
+        }
+
+    try:
+        vw = int(view_width or 0)
+    except Exception:
+        vw = 0
+    if vw > 0:
+        try:
+            payload["estimated_height"] = int(
+                _bg._estimate_prio_needed_height(  # noqa: SLF001 - shared internal data builder
+                    int(target_nid),
+                    chain_nodes,
+                    chain_edges,
+                    chain_labels,
+                    int(vw),
+                )
+            )
+        except Exception:
+            payload["estimated_height"] = 0
+
+    return payload
+
+
 def _install_graph_api() -> None:
     if mw is None:
         return
+    editor_api = {
+        "open_note_editor": _open_note_editor_for_graph_api,
+        "open_editor_for_note": _open_note_editor_for_graph_api,
+        "open_editor": _open_note_editor_for_graph_api,
+        "edit_note": _open_note_editor_for_graph_api,
+        "show_note_editor": _open_note_editor_for_graph_api,
+        "is_open": _is_note_editor_open_for_graph_api,
+    }
     mw._ajpc_graph_api = {
         "get_config": get_graph_config,
+        "get_dependency_tree": get_dependency_tree,
+        "get_prio_chain": get_dependency_tree,
         "version": __version__,
+        # Keep editor entry points on graph API so dependent add-ons can
+        # open the AJPC popup editor with its integrated side panel.
+        "open_note_editor": _open_note_editor_for_graph_api,
+        "open_editor_for_note": _open_note_editor_for_graph_api,
+        "open_editor": _open_note_editor_for_graph_api,
+        "edit_note": _open_note_editor_for_graph_api,
+        "show_note_editor": _open_note_editor_for_graph_api,
+        "is_note_editor_open": _is_note_editor_open_for_graph_api,
+        "editor": editor_api,
     }
 
 

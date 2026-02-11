@@ -653,6 +653,7 @@ html, body {
 
     let detourRight = 0;
     let detourLeft = 0;
+    const detourLaneByKey = new Map();
 
     const sourceMeta = new Map();
     for (const [sid, arr] of outMap.entries()) {
@@ -680,6 +681,21 @@ html, body {
       if (Number(meta.outCount || 0) > 1) {
         forkPoints.push({ x: Number(meta.sx || 0), y: Number(meta.forkY || 0) });
       }
+    }
+
+    function detourXFor(sourceId, side) {
+      const key = String(sourceId || "") + ":" + (side > 0 ? "R" : "L");
+      if (detourLaneByKey.has(key)) return Number(detourLaneByKey.get(key) || 0);
+      let x;
+      if (side > 0) {
+        x = maxBoxX + 16 + (detourRight * 10);
+        detourRight += 1;
+      } else {
+        x = minBoxX - 16 - (detourLeft * 10);
+        detourLeft += 1;
+      }
+      detourLaneByKey.set(key, Number(x));
+      return Number(x);
     }
 
     const routes = [];
@@ -714,14 +730,7 @@ html, body {
         const graphCenterX = (minBoxX + maxBoxX) * 0.5;
         let side = centerX >= graphCenterX ? 1 : -1;
 
-        let detourX;
-        if (side > 0) {
-          detourX = maxBoxX + 16 + (detourRight * 10);
-          detourRight += 1;
-        } else {
-          detourX = minBoxX - 16 - (detourLeft * 10);
-          detourLeft += 1;
-        }
+        let detourX = detourXFor(sourceId, side);
 
         const pA = { x: detourX, y: p1.y };
         const pB = { x: detourX, y: p3.y };
@@ -730,13 +739,7 @@ html, body {
           path = detourPath;
         } else {
           side = -side;
-          if (side > 0) {
-            detourX = maxBoxX + 16 + (detourRight * 10);
-            detourRight += 1;
-          } else {
-            detourX = minBoxX - 16 - (detourLeft * 10);
-            detourLeft += 1;
-          }
+          detourX = detourXFor(sourceId, side);
           path = [p0, p1, { x: detourX, y: p1.y }, { x: detourX, y: p3.y }, p3, p4];
         }
       }
