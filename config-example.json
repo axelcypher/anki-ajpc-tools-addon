@@ -1,23 +1,28 @@
 {
   "debug": {
     "enabled": false,
+    "level": "debug",
     "verify_suspension": false,
+    "show_restart_button": false,
+    "module_logs": {},
+    "module_levels": {},
     "watch_nids": []
   },
   "run_on_sync": true,
   "run_on_ui": true,
   "sticky_unlock": true,
-  "stability": {
-    "default_threshold": 14.0,
-    "aggregation": "min"
+  "window_restore": {
+    "enabled": true,
+    "main_window_geometry": "",
+    "main_window_state": ""
   },
   "installer": {
     "notetypes_installed": false
   },
   "family_gate": {
     "enabled": true,
+    "run_on_sync": true,
     "link_family_member": false,
-    "link_css_selector": "",
     "family": {
       "field": "FamilyID",
       "separator": ";",
@@ -25,12 +30,17 @@
     },
     "note_types": {}
   },
+  "card_stages": {
+    "enabled": true,
+    "run_on_sync": true,
+    "note_types": {}
+  },
   "example_gate": {
     "enabled": true,
+    "run_on_sync": true,
     "vocab_deck": "",
     "example_deck": "",
-    "vocab_key_field": "Vocab",
-    "example_key_field": "Vocab",
+    "key_field": "Vocab",
     "example_stage_syntax": {
       "separator": "@",
       "default_stage": 0
@@ -48,31 +58,36 @@
   },
   "kanji_gate": {
     "enabled": true,
+    "run_on_sync": true,
     "behavior": "kanji_and_components",
-    "stability_aggregation": "min",
     "kanji_note_type": "",
-    "kanji_field": "",
-    "kanji_alt_field": "",
+    "kanji_fields": [],
     "components_field": "",
     "kanji_radical_field": "",
     "radical_note_type": "",
     "radical_field": "",
     "kanji_threshold": 14.0,
-    "component_threshold": 14.0,
     "vocab_note_types": {}
   },
   "card_sorter": {
     "enabled": true,
     "run_on_add_note": true,
-    "run_on_sync_start": true,
-    "run_on_sync_finish": true,
+    "run_on_sync": true,
     "exclude_decks": [],
     "exclude_tags": [],
     "note_types": {}
   },
-  "note_linker": {
+  "mass_linker": {
     "enabled": true,
-    "copy_label_field": "",
+    "label_field": "",
     "rules": {}
+  },
+  "link_core": {
+    "injection_field": "",
+    "popup_editor": {
+      "width": 1180,
+      "height": 820,
+      "sidebar_ratio": 0.3
+    }
   }
 }

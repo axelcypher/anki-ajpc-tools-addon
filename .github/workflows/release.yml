@@ -16,6 +16,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - name: Read version from version.py
         id: ver
         run: |
@@ -62,11 +67,131 @@ jobs:
             --exclude ".github" \
             --exclude "dist" \
             --exclude "build" \
+            --exclude "vendor" \
             --exclude "__pycache__" \
             --exclude "meta.json" \
             --exclude "config-example.json" \
             --exclude "*.ankiaddon" \
             ./ "build/"
+
+          python -m pip install --upgrade pip
+          rm -rf wheelhouse "build/vendor"
+          mkdir -p wheelhouse "build/vendor"
+
+          python - <<'PY'
+          import pathlib
+          import shutil
+          import subprocess
+          import sys
+          import zipfile
+
+          wheelhouse = pathlib.Path("wheelhouse")
+          target = pathlib.Path("build/vendor")
+          target.mkdir(parents=True, exist_ok=True)
+
+          def pip_download(dest: pathlib.Path, package: str, platform_tag: str | None = None) -> None:
+              cmd = [
+                  sys.executable,
+                  "-m",
+                  "pip",
+                  "download",
+                  "--no-deps",
+                  "--only-binary=:all:",
+                  "--dest",
+                  str(dest),
+              ]
+              if platform_tag:
+                  cmd.extend(
+                      [
+                          "--platform",
+                          platform_tag,
+                          "--implementation",
+                          "cp",
+                          "--python-version",
+                          "313",
+                          "--abi",
+                          "cp313",
+                      ]
+                  )
+              cmd.append(package)
+              subprocess.run(cmd, check=True)
+
+          def pip_wheel(dest: pathlib.Path, package: str) -> None:
+              cmd = [
+                  sys.executable,
+                  "-m",
+                  "pip",
+                  "wheel",
+                  "--no-deps",
+                  "--wheel-dir",
+                  str(dest),
+                  package,
+              ]
+              subprocess.run(cmd, check=True)
+
+          def extract_all(src: pathlib.Path, dst: pathlib.Path) -> None:
+              wheels = sorted(src.glob("*.whl"))
+              if not wheels:
+                  raise SystemExit(f"No wheels downloaded in {src}")
+              dst.mkdir(parents=True, exist_ok=True)
+              for wheel in wheels:
+                  with zipfile.ZipFile(wheel) as zf:
+                      zf.extractall(dst)
+                  print(f"extracted {wheel.name} -> {dst}")
+
+          platform_targets = {
+              "win": "win_amd64",
+              "linux": "manylinux_2_17_x86_64",
+              "macos_x86_64": "macosx_10_13_x86_64",
+              "macos_arm64": "macosx_11_0_arm64",
+          }
+
+          for key, platform_tag in platform_targets.items():
+              wh = wheelhouse / key
+              wh.mkdir(parents=True, exist_ok=True)
+              pip_download(wh, "fugashi==1.5.2", platform_tag=platform_tag)
+              extract_all(wh, target / key)
+
+          common_wh = wheelhouse / "common"
+          common_wh.mkdir(parents=True, exist_ok=True)
+          pip_wheel(common_wh, "unidic-lite==1.0.8")
+          extract_all(common_wh, target / "common")
+
+          required_vendor_files = [
+              target / "win" / "fugashi-1.5.2.dist-info" / "METADATA",
+              target / "win" / "fugashi-1.5.2.dist-info" / "licenses" / "LICENSE",
+              target / "win" / "fugashi-1.5.2.dist-info" / "licenses" / "LICENSE.mecab",
+              target / "linux" / "fugashi-1.5.2.dist-info" / "METADATA",
+              target / "linux" / "fugashi-1.5.2.dist-info" / "licenses" / "LICENSE",
+              target / "linux" / "fugashi-1.5.2.dist-info" / "licenses" / "LICENSE.mecab",
+              target / "macos_x86_64" / "fugashi-1.5.2.dist-info" / "METADATA",
+              target / "macos_x86_64" / "fugashi-1.5.2.dist-info" / "licenses" / "LICENSE",
+              target / "macos_x86_64" / "fugashi-1.5.2.dist-info" / "licenses" / "LICENSE.mecab",
+              target / "macos_arm64" / "fugashi-1.5.2.dist-info" / "METADATA",
+              target / "macos_arm64" / "fugashi-1.5.2.dist-info" / "licenses" / "LICENSE",
+              target / "macos_arm64" / "fugashi-1.5.2.dist-info" / "licenses" / "LICENSE.mecab",
+              target / "common" / "unidic_lite-1.0.8.dist-info" / "METADATA",
+              target / "common" / "unidic_lite-1.0.8.dist-info" / "licenses" / "LICENSE",
+              target / "common" / "unidic_lite-1.0.8.dist-info" / "licenses" / "LICENSE.unidic",
+          ]
+          required_repo_license_files = [
+              pathlib.Path("build") / "LICENSE",
+              pathlib.Path("build") / "THIRD_PARTY_LICENSES.md",
+              pathlib.Path("build") / "licenses" / "fugashi.LICENSE.txt",
+              pathlib.Path("build") / "licenses" / "fugashi.LICENSE.mecab.txt",
+              pathlib.Path("build") / "licenses" / "unidic-lite.LICENSE.txt",
+              pathlib.Path("build") / "licenses" / "unidic-lite.LICENSE.unidic.txt",
+          ]
+
+          missing = [str(p) for p in (required_vendor_files + required_repo_license_files) if not p.exists()]
+          if missing:
+              print("Missing required license/compliance files:")
+              for p in missing:
+                  print(f" - {p}")
+              raise SystemExit(1)
+
+          shutil.rmtree(wheelhouse, ignore_errors=True)
+          PY
 
           if [ -f "build/config-example.json" ] && [ ! -f "build/config.json" ]; then
             cp "build/config-example.json" "build/config.json"

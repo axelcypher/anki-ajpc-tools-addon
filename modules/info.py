@@ -64,7 +64,7 @@ def _build_settings(ctx):
         with open(readme_path, "r", encoding="utf-8") as f:
             doc_text = f.read()
     except Exception as exc:
-        logging.dbg("settings: failed to read README.md", repr(exc))
+        logging.warn("settings: failed to read README.md", repr(exc), source="info")
         doc_text = "# README not found\n\nThe add-on README.md could not be loaded."
     if hasattr(info_doc, "setMarkdown"):
         info_doc.setMarkdown(doc_text)
@@ -86,6 +86,6 @@ def _build_settings(ctx):
 MODULE = ModuleSpec(
     id="info",
     label="Info",
-    order=90,
+    order=900,
     build_settings=_build_settings,
 )

@@ -17,6 +17,7 @@ from aqt.qt import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFrame,
     QFormLayout,
     QLabel,
     QStandardItem,
@@ -26,8 +27,9 @@ from aqt.qt import (
     QVBoxLayout,
     QWidget,
 )
-from aqt.utils import showInfo, show_info, tooltip
+from aqt.utils import tooltip
 
+from .. import logging as core_logging
 from . import ModuleSpec
 
 ADDON_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -39,23 +41,25 @@ DEBUG_VERIFY_SUSPENSION = False
 RUN_ON_SYNC = True
 RUN_ON_UI = True
 STICKY_UNLOCK = True
-STABILITY_DEFAULT_THRESHOLD = 2.5
+STABILITY_DEFAULT_THRESHOLD = 14.0
 STABILITY_AGG = "min"
 WATCH_NIDS: set[int] = set()
 
 KANJI_GATE_ENABLED = True
+KANJI_GATE_RUN_ON_SYNC = True
 KANJI_GATE_BEHAVIOR = "kanji_and_components"
 KANJI_GATE_STABILITY_AGG = "min"
 KANJI_GATE_VOCAB_NOTE_TYPES: dict[str, Any] = {}
 KANJI_GATE_KANJI_NOTE_TYPE = ""
+KANJI_GATE_KANJI_FIELDS: list[str] = []
 KANJI_GATE_KANJI_FIELD = ""
 KANJI_GATE_KANJI_ALT_FIELD = ""
 KANJI_GATE_COMPONENTS_FIELD = ""
 KANJI_GATE_KANJI_RADICAL_FIELD = ""
 KANJI_GATE_RADICAL_NOTE_TYPE = ""
 KANJI_GATE_RADICAL_FIELD = ""
-KANJI_GATE_KANJI_THRESHOLD = 0.0
-KANJI_GATE_COMPONENT_THRESHOLD = 0.0
+KANJI_GATE_KANJI_THRESHOLD = 14.0
+KANJI_GATE_COMPONENT_THRESHOLD = 14.0
 
 
 def _load_config() -> dict[str, Any]:
@@ -91,9 +95,10 @@ def reload_config() -> None:
     global RUN_ON_SYNC, RUN_ON_UI
     global STICKY_UNLOCK, STABILITY_DEFAULT_THRESHOLD, STABILITY_AGG
     global WATCH_NIDS
-    global KANJI_GATE_ENABLED, KANJI_GATE_BEHAVIOR, KANJI_GATE_STABILITY_AGG
+    global KANJI_GATE_ENABLED, KANJI_GATE_RUN_ON_SYNC, KANJI_GATE_BEHAVIOR, KANJI_GATE_STABILITY_AGG
     global KANJI_GATE_VOCAB_NOTE_TYPES
-    global KANJI_GATE_KANJI_NOTE_TYPE, KANJI_GATE_KANJI_FIELD, KANJI_GATE_KANJI_ALT_FIELD
+    global KANJI_GATE_KANJI_NOTE_TYPE, KANJI_GATE_KANJI_FIELDS
+    global KANJI_GATE_KANJI_FIELD, KANJI_GATE_KANJI_ALT_FIELD
     global KANJI_GATE_COMPONENTS_FIELD, KANJI_GATE_KANJI_RADICAL_FIELD
     global KANJI_GATE_RADICAL_NOTE_TYPE, KANJI_GATE_RADICAL_FIELD
     global KANJI_GATE_KANJI_THRESHOLD, KANJI_GATE_COMPONENT_THRESHOLD
@@ -119,32 +124,56 @@ def reload_config() -> None:
     RUN_ON_SYNC = bool(cfg_get("run_on_sync", True))
     RUN_ON_UI = bool(cfg_get("run_on_ui", True))
     STICKY_UNLOCK = bool(cfg_get("sticky_unlock", True))
-    STABILITY_DEFAULT_THRESHOLD = float(cfg_get("stability.default_threshold", 2.5))
-    STABILITY_AGG = str(cfg_get("stability.aggregation", "min")).lower().strip()
-    if STABILITY_AGG not in ("min", "max", "avg"):
-        STABILITY_AGG = "min"
+    STABILITY_DEFAULT_THRESHOLD = 14.0
+    STABILITY_AGG = "min"
 
     KANJI_GATE_ENABLED = bool(cfg_get("kanji_gate.enabled", True))
+    KANJI_GATE_RUN_ON_SYNC = bool(cfg_get("kanji_gate.run_on_sync", True))
     KANJI_GATE_BEHAVIOR = str(cfg_get("kanji_gate.behavior", "kanji_and_components")).strip()
     if not KANJI_GATE_BEHAVIOR:
         KANJI_GATE_BEHAVIOR = "kanji_and_components"
-    KANJI_GATE_STABILITY_AGG = str(cfg_get("kanji_gate.stability_aggregation", "min")).lower().strip()
-    if KANJI_GATE_STABILITY_AGG not in ("min", "max", "avg"):
-        KANJI_GATE_STABILITY_AGG = "min"
+    KANJI_GATE_STABILITY_AGG = "min"
     KANJI_GATE_VOCAB_NOTE_TYPES = cfg_get("kanji_gate.vocab_note_types", {}) or {}
+    if isinstance(KANJI_GATE_VOCAB_NOTE_TYPES, dict):
+        normalized_vocab_cfg: dict[str, Any] = {}
+        for nt_id, nt_cfg in KANJI_GATE_VOCAB_NOTE_TYPES.items():
+            if not isinstance(nt_cfg, dict):
+                continue
+            item = dict(nt_cfg)
+            reading_field = str(item.get("reading_field", "")).strip()
+            if not reading_field:
+                reading_field = str(item.get("furigana_field", "")).strip()
+            if reading_field:
+                item["reading_field"] = reading_field
+            if "furigana_field" in item:
+                del item["furigana_field"]
+            normalized_vocab_cfg[str(nt_id)] = item
+        KANJI_GATE_VOCAB_NOTE_TYPES = normalized_vocab_cfg
     KANJI_GATE_KANJI_NOTE_TYPE = str(cfg_get("kanji_gate.kanji_note_type", "")).strip()
-    KANJI_GATE_KANJI_FIELD = str(cfg_get("kanji_gate.kanji_field", "")).strip()
-    KANJI_GATE_KANJI_ALT_FIELD = str(cfg_get("kanji_gate.kanji_alt_field", "")).strip()
+    fields_raw = cfg_get("kanji_gate.kanji_fields", None)
+    if isinstance(fields_raw, list):
+        KANJI_GATE_KANJI_FIELDS = [str(x).strip() for x in fields_raw if str(x).strip()]
+    else:
+        KANJI_GATE_KANJI_FIELDS = []
+    if not KANJI_GATE_KANJI_FIELDS:
+        legacy_main = str(cfg_get("kanji_gate.kanji_field", "")).strip()
+        legacy_alt = str(cfg_get("kanji_gate.kanji_alt_field", "")).strip()
+        if legacy_main:
+            KANJI_GATE_KANJI_FIELDS.append(legacy_main)
+        if legacy_alt and legacy_alt not in KANJI_GATE_KANJI_FIELDS:
+            KANJI_GATE_KANJI_FIELDS.append(legacy_alt)
+    KANJI_GATE_KANJI_FIELD = KANJI_GATE_KANJI_FIELDS[0] if KANJI_GATE_KANJI_FIELDS else ""
+    KANJI_GATE_KANJI_ALT_FIELD = (
+        KANJI_GATE_KANJI_FIELDS[1] if len(KANJI_GATE_KANJI_FIELDS) > 1 else ""
+    )
     KANJI_GATE_COMPONENTS_FIELD = str(cfg_get("kanji_gate.components_field", "")).strip()
     KANJI_GATE_KANJI_RADICAL_FIELD = str(cfg_get("kanji_gate.kanji_radical_field", "")).strip()
     KANJI_GATE_RADICAL_NOTE_TYPE = str(cfg_get("kanji_gate.radical_note_type", "")).strip()
     KANJI_GATE_RADICAL_FIELD = str(cfg_get("kanji_gate.radical_field", "")).strip()
     KANJI_GATE_KANJI_THRESHOLD = float(
-        cfg_get("kanji_gate.kanji_threshold", STABILITY_DEFAULT_THRESHOLD)
+        cfg_get("kanji_gate.kanji_threshold", 14.0)
     )
-    KANJI_GATE_COMPONENT_THRESHOLD = float(
-        cfg_get("kanji_gate.component_threshold", STABILITY_DEFAULT_THRESHOLD)
-    )
+    KANJI_GATE_COMPONENT_THRESHOLD = 14.0
 
     try:
         from aqt import mw as _mw  # type: ignore
@@ -218,43 +247,27 @@ DEBUG_LOG_PATH = os.path.join(ADDON_DIR, "ajpc_debug.log")
 
 
 def dbg(*a: Any) -> None:
-    if not config.DEBUG:
-        return
-
-    try:
-        ts = time.strftime("%H:%M:%S")
-    except Exception:
-        ts = ""
-
-    line = " ".join(str(x) for x in a)
-    msg = f"[KanjiGate {ts}] {line}"
-
-    try:
-        import threading
-
-        if mw is not None and threading.current_thread() is not threading.main_thread():
-            mw.taskman.run_on_main(lambda m=msg: print(m, flush=True))
-        else:
-            print(msg, flush=True)
-    except Exception:
-        try:
-            print(msg, flush=True)
-        except Exception:
-            pass
-
-    try:
-        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(msg + "\n")
-    except Exception:
-        pass
+    core_logging.trace(*a, source="kanji_gate")
 
 
-_FURIGANA_BR_RE = re.compile(r"\[[^\]]*\]")
+def log_info(*a: Any) -> None:
+    core_logging.info(*a, source="kanji_gate")
+
+
+def log_warn(*a: Any) -> None:
+    core_logging.warn(*a, source="kanji_gate")
+
+
+def log_error(*a: Any) -> None:
+    core_logging.error(*a, source="kanji_gate")
+
+
+_READING_BR_RE = re.compile(r"\[[^\]]*\]")
 _KANJI_RE = re.compile(r"[\u2E80-\u2EFF\u2F00-\u2FDF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
 
 
-def strip_furigana_brackets(s: str) -> str:
-    return _FURIGANA_BR_RE.sub("", s or "")
+def strip_reading_brackets(s: str) -> str:
+    return _READING_BR_RE.sub("", s or "")
 
 
 def extract_kanji(s: str) -> list[str]:
@@ -416,7 +429,7 @@ KANJI_STICKY_TAG_RADICAL = f"{KANJI_STICKY_TAG_BASE}::radical"
 @dataclass(frozen=True)
 class VocabCfg:
     note_type_id: str
-    furigana_field: str
+    reading_field: str
     base_templates: list[str]
     kanji_templates: list[str]
     base_threshold: float
@@ -501,7 +514,9 @@ def _get_vocab_cfgs() -> dict[str, VocabCfg]:
     for nt_name, cfg in raw.items():
         if not nt_name or not isinstance(cfg, dict):
             continue
-        furigana_field = str(cfg.get("furigana_field", "")).strip()
+        reading_field = str(cfg.get("reading_field", "")).strip()
+        if not reading_field:
+            reading_field = str(cfg.get("furigana_field", "")).strip()
         base_templates = [
             _template_ord_from_value(str(nt_name), x)
             for x in (cfg.get("base_templates") or [])
@@ -515,7 +530,7 @@ def _get_vocab_cfgs() -> dict[str, VocabCfg]:
         base_threshold = float(cfg.get("base_threshold", config.STABILITY_DEFAULT_THRESHOLD))
         out[str(nt_name)] = VocabCfg(
             note_type_id=str(nt_name),
-            furigana_field=furigana_field,
+            reading_field=reading_field,
             base_templates=base_templates,
             kanji_templates=kanji_templates,
             base_threshold=base_threshold,
@@ -525,7 +540,7 @@ def _get_vocab_cfgs() -> dict[str, VocabCfg]:
 
 def kanji_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
     if not config.KANJI_GATE_ENABLED:
-        dbg("kanji_gate disabled")
+        log_info("kanji_gate disabled")
         return
 
     behavior = str(config.KANJI_GATE_BEHAVIOR or "").strip()
@@ -536,32 +551,30 @@ def kanji_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
         "kanji_and_components",
     ):
         dbg("kanji_gate: invalid behavior", behavior)
+        log_warn("kanji_gate: invalid behavior", behavior)
         return
 
-    agg_mode = str(config.KANJI_GATE_STABILITY_AGG or "min").strip()
-    if agg_mode not in ("min", "max", "avg"):
-        agg_mode = "min"
+    agg_mode = "min"
 
     vocab_cfgs = _get_vocab_cfgs()
     if not vocab_cfgs:
-        dbg("kanji_gate: no vocab note types configured")
+        log_warn("kanji_gate: no vocab note types configured")
         return
 
     kanji_note_type = config.KANJI_GATE_KANJI_NOTE_TYPE
-    kanji_field = config.KANJI_GATE_KANJI_FIELD
-    kanji_alt_field = config.KANJI_GATE_KANJI_ALT_FIELD
+    kanji_fields = list(config.KANJI_GATE_KANJI_FIELDS or [])
     components_field = config.KANJI_GATE_COMPONENTS_FIELD
     kanji_radical_field = config.KANJI_GATE_KANJI_RADICAL_FIELD
     radical_note_type = config.KANJI_GATE_RADICAL_NOTE_TYPE
     radical_field = config.KANJI_GATE_RADICAL_FIELD
 
-    if not kanji_note_type or not kanji_field:
-        dbg("kanji_gate: missing kanji config")
+    if not kanji_note_type or not kanji_fields:
+        log_warn("kanji_gate: missing kanji config")
         return
 
     use_components = behavior in ("kanji_then_components", "components_then_kanji", "kanji_and_components")
     if use_components and not components_field:
-        dbg("kanji_gate: missing components field")
+        log_warn("kanji_gate: missing components field")
         return
 
     radicals_enabled = bool(use_components and kanji_radical_field and radical_note_type and radical_field)
@@ -584,16 +597,15 @@ def kanji_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
         try:
             note = _get_note(nid)
             model = col.models.get(note.mid)
-            nt_name = str(model.get("name", "")) if model else ""
             nt_id = str(note.mid)
-            cfg = vocab_cfgs.get(nt_id) or vocab_cfgs.get(nt_name)
+            cfg = vocab_cfgs.get(nt_id)
             if not cfg:
                 continue
-            if cfg.furigana_field not in note:
+            if cfg.reading_field not in note:
                 continue
 
-            raw = str(note[cfg.furigana_field] or "")
-            cleaned = strip_furigana_brackets(raw)
+            raw = str(note[cfg.reading_field] or "")
+            cleaned = strip_reading_brackets(raw)
             kanji_list = extract_kanji(cleaned)
             if not kanji_list:
                 continue
@@ -632,9 +644,10 @@ def kanji_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
         except Exception:
             dbg("kanji_gate: exception indexing vocab nid", nid)
             dbg(traceback.format_exc())
+            log_warn("kanji_gate: exception indexing vocab nid", nid)
 
     if not vocab_notes:
-        dbg("kanji_gate: no vocab notes with kanji")
+        log_info("kanji_gate: no vocab notes with kanji")
         return
 
     kanji_index: dict[str, list[KanjiNoteEntry]] = {}
@@ -646,12 +659,10 @@ def kanji_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
     for i, nid in enumerate(kanji_nids):
         try:
             note = _get_note(nid)
-            if kanji_field not in note:
-                continue
-
-            keys = extract_kanji(str(note[kanji_field] or ""))
-            if kanji_alt_field and kanji_alt_field in note:
-                keys.extend(extract_kanji(str(note[kanji_alt_field] or "")))
+            keys: list[str] = []
+            for field_name in kanji_fields:
+                if field_name in note:
+                    keys.extend(extract_kanji(str(note[field_name] or "")))
             if not keys:
                 continue
 
@@ -681,6 +692,7 @@ def kanji_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
         except Exception:
             dbg("kanji_gate: exception indexing kanji nid", nid)
             dbg(traceback.format_exc())
+            log_warn("kanji_gate: exception indexing kanji nid", nid)
 
     radical_index: dict[str, list[int]] = {}
     if radicals_enabled:
@@ -705,6 +717,7 @@ def kanji_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
             except Exception:
                 dbg("kanji_gate: exception indexing radical nid", nid)
                 dbg(traceback.format_exc())
+                log_warn("kanji_gate: exception indexing radical nid", nid)
 
     radical_scope_note_ids: set[int] = set()
     if radicals_enabled and all_radicals:
@@ -836,6 +849,7 @@ def kanji_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
         except Exception:
             dbg("kanji_gate: exception applying vocab nid", info.nid)
             dbg(traceback.format_exc())
+            log_warn("kanji_gate: exception applying vocab nid", info.nid)
 
     kanji_scope_cards: set[int] = set()
     component_scope_cards: set[int] = set()
@@ -871,6 +885,7 @@ def kanji_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
         except Exception:
             dbg("kanji_gate: exception applying kanji nid", nid)
             dbg(traceback.format_exc())
+            log_warn("kanji_gate: exception applying kanji nid", nid)
 
     radical_scope_cards: set[int] = set()
     radical_allow_cards: set[int] = set()
@@ -897,6 +912,7 @@ def kanji_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
             except Exception:
                 dbg("kanji_gate: exception applying radical nid", rnid)
                 dbg(traceback.format_exc())
+                log_warn("kanji_gate: exception applying radical nid", rnid)
 
     vocab_susp = vocab_kanji_scope_cards - vocab_kanji_allow_cards
     kanji_susp = kanji_scope_cards - kanji_allow_cards
@@ -922,17 +938,11 @@ def kanji_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
 
 
 def _notify_info(msg: str, *, reason: str = "manual") -> None:
-    if reason == "sync":
-        tooltip(msg)
-    else:
-        show_info(msg)
+    tooltip(msg, period=2500)
 
 
 def _notify_error(msg: str, *, reason: str = "manual") -> None:
-    if reason == "sync":
-        tooltip(msg)
-    else:
-        showInfo(msg)
+    tooltip(msg, period=2500)
 
 
 def run_kanji_gate(*, reason: str = "manual") -> None:
@@ -943,22 +953,25 @@ def run_kanji_gate(*, reason: str = "manual") -> None:
         config.DEBUG,
         "run_on_sync=",
         config.RUN_ON_SYNC,
+        "kanji_run_on_sync=",
+        config.KANJI_GATE_RUN_ON_SYNC,
         "run_on_ui=",
         config.RUN_ON_UI,
     )
 
     if not mw.col:
+        log_error("kanji_gate: no collection loaded")
         _notify_error("No collection loaded.", reason=reason)
         return
 
-    if reason == "sync" and not config.RUN_ON_SYNC:
-        dbg("kanji_gate: skip (run_on_sync disabled)")
+    if reason == "sync" and not (config.RUN_ON_SYNC and config.KANJI_GATE_RUN_ON_SYNC):
+        log_info("kanji_gate: skip (run_on_sync disabled)")
         return
     if reason == "manual" and not config.RUN_ON_UI:
-        dbg("kanji_gate: skip (run_on_ui disabled)")
+        log_info("kanji_gate: skip (run_on_ui disabled)")
         return
     if not config.KANJI_GATE_ENABLED:
-        dbg("kanji_gate: skip (disabled)")
+        log_info("kanji_gate: skip (disabled)")
         return
 
     def ui_set(label: str, value: int, maxv: int) -> None:
@@ -974,7 +987,7 @@ def run_kanji_gate(*, reason: str = "manual") -> None:
         mw.taskman.run_on_main(_do)
 
     def op(col: Collection):
-        undo_entry = col.add_custom_undo_entry("Kanji Gate")
+        undo_entry = col.add_custom_undo_entry("Kanji Unlocker")
 
         counters = {
             "vocab_kanji_cards_unsuspended": 0,
@@ -1000,6 +1013,10 @@ def run_kanji_gate(*, reason: str = "manual") -> None:
                     "merge_undo_entries skipped: target undo op not found",
                     f"undo_entry={undo_entry}",
                 )
+            log_warn(
+                "merge_undo_entries skipped: target undo op not found",
+                f"undo_entry={undo_entry}",
+            )
             changes = OpChanges()
 
         if changes is None:
@@ -1008,16 +1025,22 @@ def run_kanji_gate(*, reason: str = "manual") -> None:
         return _Result(changes, counters)
 
     def on_success(result) -> None:
-        if reason == "sync":
-            return
         c = getattr(result, "counts", {}) or {}
         msg = (
-            "Kanji Gate finished.\n"
+            "Kanji Unlocker finished.\n"
             f"vocab_kanjiform_unsuspended={c.get('vocab_kanji_cards_unsuspended', 0)} "
             f"kanji_unsuspended={c.get('kanji_cards_unsuspended', 0)} "
             f"components_unsuspended={c.get('component_cards_unsuspended', 0)} "
             f"radical_unsuspended={c.get('radical_cards_unsuspended', 0)} "
             f"suspended={c.get('kanji_gate_cards_suspended', 0)}"
+        )
+        log_info(
+            "Kanji Unlocker finished",
+            f"vocab_kanjiform_unsuspended={c.get('vocab_kanji_cards_unsuspended', 0)}",
+            f"kanji_unsuspended={c.get('kanji_cards_unsuspended', 0)}",
+            f"components_unsuspended={c.get('component_cards_unsuspended', 0)}",
+            f"radical_unsuspended={c.get('radical_cards_unsuspended', 0)}",
+            f"suspended={c.get('kanji_gate_cards_suspended', 0)}",
         )
         if config.DEBUG:
             dbg("RESULT", msg)
@@ -1025,10 +1048,18 @@ def run_kanji_gate(*, reason: str = "manual") -> None:
 
     def on_failure(err: Exception) -> None:
         tb = "".join(traceback.format_exception(type(err), err, err.__traceback__))
+        log_error("Kanji Unlocker failed", repr(err))
         if config.DEBUG:
             dbg("FAILURE", repr(err))
             dbg(tb)
-        _notify_error("Kanji Gate failed:\n" + tb, reason=reason)
+        _notify_error("Kanji Unlocker failed:\n" + tb, reason=reason)
+
+    if reason == "sync":
+        try:
+            op(mw.col)
+        except Exception as err:
+            on_failure(err)
+        return
 
     CollectionOp(parent=mw, op=op).success(on_success).failure(on_failure).run_in_background()
 
@@ -1280,6 +1311,13 @@ def _make_checkable_combo(items: list[Any], selected: list[str]) -> tuple[QCombo
     return combo, model
 
 
+def _tip_label(text: str, tip: str) -> QLabel:
+    label = QLabel(text)
+    label.setToolTip(tip)
+    label.setWhatsThis(tip)
+    return label
+
+
 def _build_settings(ctx):
     kanji_tab = QWidget()
     kanji_layout = QVBoxLayout()
@@ -1295,8 +1333,34 @@ def _build_settings(ctx):
 
     kanji_enabled_cb = QCheckBox()
     kanji_enabled_cb.setChecked(config.KANJI_GATE_ENABLED)
-    kanji_form.addRow("Enabled", kanji_enabled_cb)
+    kanji_form.addRow(
+        _tip_label("Enabled", "Enable or disable Kanji Unlocker."),
+        kanji_enabled_cb,
+    )
 
+    kanji_run_on_sync_cb = QCheckBox()
+    kanji_run_on_sync_cb.setChecked(config.KANJI_GATE_RUN_ON_SYNC)
+    kanji_form.addRow(
+        _tip_label("Run on sync", "Run Kanji Unlocker automatically at sync start."),
+        kanji_run_on_sync_cb,
+    )
+
+    vocab_note_type_items = _merge_note_type_items(
+        _get_note_type_items(), list((config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).keys())
+    )
+    kanji_vocab_note_type_combo, kanji_vocab_note_type_model = _make_checkable_combo(
+        vocab_note_type_items, list((config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).keys())
+    )
+    kanji_form.addRow(
+        _tip_label("Vocab note types", "Source note types that drive unlock progression."),
+        kanji_vocab_note_type_combo,
+    )
+    notetype_separator = QFrame()
+    notetype_separator.setFrameShape(QFrame.Shape.HLine)
+    notetype_separator.setFrameShadow(QFrame.Shadow.Sunken)
+
+    kanji_form.addWidget(notetype_separator)
+    
     behavior_combo = QComboBox()
     behavior_combo.addItem("Kanji Only", "kanji_only")
     behavior_combo.addItem("Kanji then Components", "kanji_then_components")
@@ -1306,18 +1370,10 @@ def _build_settings(ctx):
     if behavior_idx < 0:
         behavior_idx = 0
     behavior_combo.setCurrentIndex(behavior_idx)
-    kanji_form.addRow("Behavior", behavior_combo)
-
-    kanji_agg_combo = QComboBox()
-    agg_opts = ["min", "max", "avg"]
-    kanji_agg_combo.addItems(agg_opts)
-    agg_index = (
-        agg_opts.index(config.KANJI_GATE_STABILITY_AGG)
-        if config.KANJI_GATE_STABILITY_AGG in agg_opts
-        else 0
+    kanji_form.addRow(
+        _tip_label("Behavior", "Unlock strategy between Kanji and Components."),
+        behavior_combo,
     )
-    kanji_agg_combo.setCurrentIndex(agg_index)
-    kanji_form.addRow("Stability aggregation", kanji_agg_combo)
 
     kanji_note_type_items = _merge_note_type_items(
         _get_note_type_items(),
@@ -1328,25 +1384,31 @@ def _build_settings(ctx):
     _populate_note_type_combo(
         kanji_note_type_combo, kanji_note_type_items, config.KANJI_GATE_KANJI_NOTE_TYPE
     )
-    kanji_form.addRow("Kanji note type", kanji_note_type_combo)
-
-    kanji_field_combo = QComboBox()
-    _populate_field_combo(
-        kanji_field_combo,
-        _get_fields_for_note_type(config.KANJI_GATE_KANJI_NOTE_TYPE),
-        config.KANJI_GATE_KANJI_FIELD,
+    kanji_form.addRow(
+        _tip_label("Kanji note type", "Target note type that contains Kanji entries."),
+        kanji_note_type_combo,
     )
-    kanji_form.addRow("Kanji field", kanji_field_combo)
 
-    kanji_alt_field_combo = QComboBox()
-    _populate_field_combo(
-        kanji_alt_field_combo,
-        _get_fields_for_note_type(config.KANJI_GATE_KANJI_NOTE_TYPE),
-        config.KANJI_GATE_KANJI_ALT_FIELD,
+    kanji_fields_initial = list(config.KANJI_GATE_KANJI_FIELDS or [])
+    if not kanji_fields_initial:
+        if config.KANJI_GATE_KANJI_FIELD:
+            kanji_fields_initial.append(config.KANJI_GATE_KANJI_FIELD)
+        if config.KANJI_GATE_KANJI_ALT_FIELD:
+            kanji_fields_initial.append(config.KANJI_GATE_KANJI_ALT_FIELD)
+    kanji_fields_initial = [str(x).strip() for x in kanji_fields_initial if str(x).strip()]
+    kanji_field_items = [(f, f) for f in _get_fields_for_note_type(config.KANJI_GATE_KANJI_NOTE_TYPE)]
+    kanji_fields_combo, kanji_fields_model = _make_checkable_combo(
+        kanji_field_items, kanji_fields_initial
     )
-    kanji_form.addRow("Kanji alt field", kanji_alt_field_combo)
+    kanji_form.addRow(
+        _tip_label("Kanji fields", "Fields on Kanji notes used to read Kanji values."),
+        kanji_fields_combo,
+    )
 
-    components_field_label = QLabel("Components field")
+    components_field_label = _tip_label(
+        "Components field",
+        "Field on Kanji note type that lists component Kanji.",
+    )
     kanji_components_field_combo = QComboBox()
     _populate_field_combo(
         kanji_components_field_combo,
@@ -1355,7 +1417,10 @@ def _build_settings(ctx):
     )
     kanji_form.addRow(components_field_label, kanji_components_field_combo)
 
-    kanji_radical_field_label = QLabel("Kanji radical field")
+    kanji_radical_field_label = _tip_label(
+        "Kanji radical field",
+        "Field on Kanji note type that stores radical references.",
+    )
     kanji_radical_field_combo = QComboBox()
     _populate_field_combo(
         kanji_radical_field_combo,
@@ -1364,14 +1429,26 @@ def _build_settings(ctx):
     )
     kanji_form.addRow(kanji_radical_field_label, kanji_radical_field_combo)
 
-    radical_note_type_label = QLabel("Radical note type")
+    radical_separator = QFrame()
+    radical_separator.setFrameShape(QFrame.Shape.HLine)
+    radical_separator.setFrameShadow(QFrame.Shadow.Sunken)
+
+    kanji_form.addWidget(radical_separator)
+
+    radical_note_type_label = _tip_label(
+        "Radical note type",
+        "Note type used for standalone radical notes.",
+    )
     radical_note_type_combo = QComboBox()
     _populate_note_type_combo(
         radical_note_type_combo, kanji_note_type_items, config.KANJI_GATE_RADICAL_NOTE_TYPE
     )
     kanji_form.addRow(radical_note_type_label, radical_note_type_combo)
 
-    radical_field_label = QLabel("Radical field")
+    radical_field_label = _tip_label(
+        "Radical field",
+        "Field on radical note type used to match radical keys.",
+    )
     radical_field_combo = QComboBox()
     _populate_field_combo(
         radical_field_combo,
@@ -1380,27 +1457,17 @@ def _build_settings(ctx):
     )
     kanji_form.addRow(radical_field_label, radical_field_combo)
 
-    kanji_threshold_label = QLabel("Kanji threshold")
+    kanji_threshold_label = _tip_label(
+        "Kanji threshold",
+        "Required FSRS stability before Kanji unlock checks pass.",
+    )
     kanji_threshold_spin = QDoubleSpinBox()
     kanji_threshold_spin.setDecimals(2)
     kanji_threshold_spin.setRange(0, 100000)
+    kanji_threshold_spin.setSuffix(" days")
     kanji_threshold_spin.setValue(float(config.KANJI_GATE_KANJI_THRESHOLD))
     kanji_form.addRow(kanji_threshold_label, kanji_threshold_spin)
-
-    component_threshold_label = QLabel("Component threshold")
-    component_threshold_spin = QDoubleSpinBox()
-    component_threshold_spin.setDecimals(2)
-    component_threshold_spin.setRange(0, 100000)
-    component_threshold_spin.setValue(float(config.KANJI_GATE_COMPONENT_THRESHOLD))
-    kanji_form.addRow(component_threshold_label, component_threshold_spin)
-
-    vocab_note_type_items = _merge_note_type_items(
-        _get_note_type_items(), list((config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).keys())
-    )
-    kanji_vocab_note_type_combo, kanji_vocab_note_type_model = _make_checkable_combo(
-        vocab_note_type_items, list((config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).keys())
-    )
-    kanji_form.addRow("Vocab note types", kanji_vocab_note_type_combo)
+    general_layout.addStretch(1)
 
     kanji_tabs.addTab(general_tab, "General")
 
@@ -1413,8 +1480,9 @@ def _build_settings(ctx):
 
     kanji_vocab_tabs = QTabWidget()
     vocab_layout.addWidget(kanji_vocab_tabs)
+    vocab_layout.addStretch(1)
 
-    kanji_tabs.addTab(vocab_tab, "Vocab")
+    kanji_tabs.addTab(vocab_tab, "Note Types")
 
     kanji_vocab_state: dict[str, dict[str, Any]] = {}
     for nt_id, nt_cfg in (config.KANJI_GATE_VOCAB_NOTE_TYPES or {}).items():
@@ -1431,7 +1499,10 @@ def _build_settings(ctx):
         ]
         kanji_templates = [t for t in kanji_templates if t]
         kanji_vocab_state[str(nt_id)] = {
-            "furigana_field": str(nt_cfg.get("furigana_field", "")).strip(),
+            "reading_field": (
+                str(nt_cfg.get("reading_field", "")).strip()
+                or str(nt_cfg.get("furigana_field", "")).strip()
+            ),
             "base_templates": base_templates,
             "kanji_templates": kanji_templates,
             "base_threshold": float(
@@ -1451,7 +1522,7 @@ def _build_settings(ctx):
     def _capture_kanji_vocab_state() -> None:
         for nt_id, widgets in kanji_vocab_widgets.items():
             kanji_vocab_state[nt_id] = {
-                "furigana_field": _combo_value(widgets["furigana_combo"]),
+                "reading_field": _combo_value(widgets["reading_combo"]),
                 "base_templates": _checked_items(widgets["base_templates_model"]),
                 "kanji_templates": _checked_items(widgets["kanji_templates_model"]),
                 "base_threshold": float(widgets["base_threshold_spin"].value()),
@@ -1468,16 +1539,16 @@ def _build_settings(ctx):
         for nt_id in selected_types:
             cfg = kanji_vocab_state.get(nt_id, {})
             field_names = list(_get_fields_for_note_type(nt_id))
-            extra_field = str(cfg.get("furigana_field", "")).strip()
+            extra_field = str(cfg.get("reading_field", "")).strip()
             if extra_field and extra_field not in field_names:
                 field_names.append(extra_field)
             field_names = sorted(set(field_names))
 
-            vocab_furigana_combo = QComboBox()
+            vocab_reading_combo = QComboBox()
             _populate_field_combo(
-                vocab_furigana_combo,
+                vocab_reading_combo,
                 field_names,
-                cfg.get("furigana_field", ""),
+                cfg.get("reading_field", ""),
             )
 
             extra_templates: list[str] = []
@@ -1494,6 +1565,7 @@ def _build_settings(ctx):
             base_threshold_spin = QDoubleSpinBox()
             base_threshold_spin.setDecimals(2)
             base_threshold_spin.setRange(0, 100000)
+            base_threshold_spin.setSuffix(" days")
             base_threshold_spin.setValue(
                 float(cfg.get("base_threshold", config.STABILITY_DEFAULT_THRESHOLD))
             )
@@ -1503,15 +1575,27 @@ def _build_settings(ctx):
             tab.setLayout(tab_layout)
 
             form = QFormLayout()
-            form.addRow("Vocab furigana field", vocab_furigana_combo)
-            form.addRow("Vocab base templates (Grundform)", base_templates_combo)
-            form.addRow("Vocab kanjiform templates", kanji_templates_combo)
-            form.addRow("Base threshold", base_threshold_spin)
+            form.addRow(
+                _tip_label("Kanji reading", "Field used for Kanji extraction on this vocab note type."),
+                vocab_reading_combo,
+            )
+            form.addRow(
+                _tip_label("Base templates", "Prerequisite templates that must be mature first."),
+                base_templates_combo,
+            )
+            form.addRow(
+                _tip_label("Vocab kanjiform templates", "Templates unlocked by Kanji Unlocker."),
+                kanji_templates_combo,
+            )
+            form.addRow(
+                _tip_label("Base threshold", "FSRS stability threshold for base templates."),
+                base_threshold_spin,
+            )
             tab_layout.addLayout(form)
             tab_layout.addStretch(1)
 
             kanji_vocab_widgets[nt_id] = {
-                "furigana_combo": vocab_furigana_combo,
+                "reading_combo": vocab_reading_combo,
                 "base_templates_model": base_templates_model,
                 "kanji_templates_model": kanji_templates_model,
                 "base_threshold_spin": base_threshold_spin,
@@ -1520,17 +1604,29 @@ def _build_settings(ctx):
 
     def _refresh_kanji_note_fields() -> None:
         nt_name = _combo_value(kanji_note_type_combo)
-        cur_kanji = _combo_value(kanji_field_combo)
-        cur_alt = _combo_value(kanji_alt_field_combo)
         cur_comps = _combo_value(kanji_components_field_combo)
         cur_rad = _combo_value(kanji_radical_field_combo)
         fields = _get_fields_for_note_type(nt_name)
-        kanji_field_combo.clear()
-        kanji_alt_field_combo.clear()
+
+        selected_fields = _checked_items(kanji_fields_model)
+        extra_fields = [f for f in selected_fields if f and f not in fields]
+        field_items = [(f, f) for f in sorted(set(fields + extra_fields))]
+        selected_set = {str(x) for x in selected_fields}
+        kanji_fields_model.clear()
+        for value, label in field_items:
+            item = QStandardItem(str(label))
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setData(str(value), Qt.ItemDataRole.UserRole)
+            item.setData(
+                Qt.CheckState.Checked if str(value) in selected_set else Qt.CheckState.Unchecked,
+                Qt.ItemDataRole.CheckStateRole,
+            )
+            kanji_fields_model.appendRow(item)
+        kanji_fields_combo.setModel(kanji_fields_model)
+        _sync_checkable_combo_text(kanji_fields_combo, kanji_fields_model)
+
         kanji_components_field_combo.clear()
         kanji_radical_field_combo.clear()
-        _populate_field_combo(kanji_field_combo, fields, cur_kanji)
-        _populate_field_combo(kanji_alt_field_combo, fields, cur_alt)
         _populate_field_combo(kanji_components_field_combo, fields, cur_comps)
         _populate_field_combo(kanji_radical_field_combo, fields, cur_rad)
 
@@ -1555,33 +1651,29 @@ def _build_settings(ctx):
         _set_row_visible(kanji_radical_field_label, kanji_radical_field_combo, use_components)
         _set_row_visible(radical_note_type_label, radical_note_type_combo, use_components)
         _set_row_visible(radical_field_label, radical_field_combo, use_components)
+        radical_separator.setVisible(use_components)
         _set_row_visible(kanji_threshold_label, kanji_threshold_spin, mode == "kanji_then_components")
-        _set_row_visible(
-            component_threshold_label, component_threshold_spin, mode == "components_then_kanji"
-        )
 
     kanji_note_type_combo.currentIndexChanged.connect(lambda _=None: _refresh_kanji_note_fields())
     radical_note_type_combo.currentIndexChanged.connect(lambda _=None: _refresh_radical_fields())
     behavior_combo.currentIndexChanged.connect(lambda _=None: _refresh_kanji_mode_ui())
     kanji_vocab_note_type_model.itemChanged.connect(lambda _item: _refresh_kanji_vocab_config())
 
+    _refresh_kanji_note_fields()
     _refresh_kanji_vocab_config()
     _refresh_kanji_mode_ui()
 
-    ctx.add_tab(kanji_tab, "Kanji Gate")
+    ctx.add_tab(kanji_tab, "Kanji Unlocker")
 
     def _save(cfg: dict, errors: list[str]) -> None:
         kanji_behavior = _combo_value(behavior_combo) or "kanji_only"
-        kanji_stab_agg = _combo_value(kanji_agg_combo) or "min"
         kanji_note_type = _combo_value(kanji_note_type_combo)
-        kanji_field = _combo_value(kanji_field_combo)
-        kanji_alt_field = _combo_value(kanji_alt_field_combo)
+        kanji_fields = _checked_items(kanji_fields_model)
         kanji_components_field = _combo_value(kanji_components_field_combo)
         kanji_kanji_radical_field = _combo_value(kanji_radical_field_combo)
         kanji_radical_note_type = _combo_value(radical_note_type_combo)
         kanji_radical_field = _combo_value(radical_field_combo)
         kanji_threshold = float(kanji_threshold_spin.value())
-        component_threshold = float(component_threshold_spin.value())
 
         _capture_kanji_vocab_state()
         kanji_vocab_note_types = _checked_items(kanji_vocab_note_type_model)
@@ -1594,15 +1686,13 @@ def _build_settings(ctx):
                 "components_then_kanji",
                 "kanji_and_components",
             ):
-                errors.append("Kanji Gate: behavior invalid.")
-            if kanji_stab_agg not in ("min", "max", "avg"):
-                errors.append("Kanji Gate: stability aggregation invalid.")
+                errors.append("Kanji Unlocker: behavior invalid.")
             if not kanji_note_type:
-                errors.append("Kanji Gate: kanji note type missing.")
-            if not kanji_field:
-                errors.append("Kanji Gate: kanji field missing.")
+                errors.append("Kanji Unlocker: kanji note type missing.")
+            if not kanji_fields:
+                errors.append("Kanji Unlocker: kanji fields missing.")
             if not kanji_vocab_note_types:
-                errors.append("Kanji Gate: vocab note types missing.")
+                errors.append("Kanji Unlocker: vocab note types missing.")
 
             uses_components = kanji_behavior in (
                 "kanji_then_components",
@@ -1610,22 +1700,22 @@ def _build_settings(ctx):
                 "kanji_and_components",
             )
             if uses_components and not kanji_components_field:
-                errors.append("Kanji Gate: components field missing.")
+                errors.append("Kanji Unlocker: components field missing.")
 
             has_any_radical_cfg = bool(
                 kanji_kanji_radical_field or kanji_radical_note_type or kanji_radical_field
             )
             if uses_components and has_any_radical_cfg:
                 if not kanji_kanji_radical_field:
-                    errors.append("Kanji Gate: kanji radical field missing.")
+                    errors.append("Kanji Unlocker: kanji radical field missing.")
                 if not kanji_radical_note_type:
-                    errors.append("Kanji Gate: radical note type missing.")
+                    errors.append("Kanji Unlocker: radical note type missing.")
                 if not kanji_radical_field:
-                    errors.append("Kanji Gate: radical field missing.")
+                    errors.append("Kanji Unlocker: radical field missing.")
 
         for nt_id in kanji_vocab_note_types:
             cfg_state = kanji_vocab_state.get(nt_id, {})
-            furigana_field = str(cfg_state.get("furigana_field", "")).strip()
+            reading_field = str(cfg_state.get("reading_field", "")).strip()
             base_templates = [
                 str(x).strip() for x in (cfg_state.get("base_templates") or []) if str(x).strip()
             ]
@@ -1639,38 +1729,36 @@ def _build_settings(ctx):
             base_threshold = float(cfg_state.get("base_threshold", config.STABILITY_DEFAULT_THRESHOLD))
 
             kanji_vocab_cfg[nt_id] = {
-                "furigana_field": furigana_field,
+                "reading_field": reading_field,
                 "base_templates": base_templates,
                 "kanji_templates": kanji_templates,
                 "base_threshold": base_threshold,
             }
 
             if kanji_enabled_cb.isChecked():
-                if not furigana_field:
+                if not reading_field:
                     errors.append(
-                        f"Kanji Gate: vocab field missing for note type: {_note_type_label(nt_id)}"
+                        f"Kanji Unlocker: vocab field missing for note type: {_note_type_label(nt_id)}"
                     )
                 if not base_templates:
                     errors.append(
-                        f"Kanji Gate: base templates missing for note type: {_note_type_label(nt_id)}"
+                        f"Kanji Unlocker: base templates missing for note type: {_note_type_label(nt_id)}"
                     )
                 if not kanji_templates:
                     errors.append(
-                        f"Kanji Gate: kanjiform templates missing for note type: {_note_type_label(nt_id)}"
+                        f"Kanji Unlocker: kanjiform templates missing for note type: {_note_type_label(nt_id)}"
                     )
 
         config._cfg_set(cfg, "kanji_gate.enabled", bool(kanji_enabled_cb.isChecked()))
+        config._cfg_set(cfg, "kanji_gate.run_on_sync", bool(kanji_run_on_sync_cb.isChecked()))
         config._cfg_set(cfg, "kanji_gate.behavior", kanji_behavior)
-        config._cfg_set(cfg, "kanji_gate.stability_aggregation", kanji_stab_agg)
         config._cfg_set(cfg, "kanji_gate.kanji_note_type", kanji_note_type)
-        config._cfg_set(cfg, "kanji_gate.kanji_field", kanji_field)
-        config._cfg_set(cfg, "kanji_gate.kanji_alt_field", kanji_alt_field)
+        config._cfg_set(cfg, "kanji_gate.kanji_fields", kanji_fields)
         config._cfg_set(cfg, "kanji_gate.components_field", kanji_components_field)
         config._cfg_set(cfg, "kanji_gate.kanji_radical_field", kanji_kanji_radical_field)
         config._cfg_set(cfg, "kanji_gate.radical_note_type", kanji_radical_note_type)
         config._cfg_set(cfg, "kanji_gate.radical_field", kanji_radical_field)
         config._cfg_set(cfg, "kanji_gate.kanji_threshold", float(kanji_threshold))
-        config._cfg_set(cfg, "kanji_gate.component_threshold", float(component_threshold))
         config._cfg_set(cfg, "kanji_gate.vocab_note_types", kanji_vocab_cfg)
 
     return _save
@@ -1683,23 +1771,22 @@ def _enabled_kanji() -> bool:
 def _init() -> None:
     from aqt import gui_hooks, mw as _mw
 
-    def _on_sync_finished() -> None:
+    def _on_sync_start() -> None:
         run_kanji_gate(reason="sync")
 
-    if config.RUN_ON_SYNC:
-        if _mw is not None and not getattr(_mw, "_ajpc_kanjigate_sync_hook_installed", False):
-            gui_hooks.sync_did_finish.append(_on_sync_finished)
-            _mw._ajpc_kanjigate_sync_hook_installed = True
+    if _mw is not None and not getattr(_mw, "_ajpc_kanjigate_sync_hook_installed", False):
+        gui_hooks.sync_will_start.append(_on_sync_start)
+        _mw._ajpc_kanjigate_sync_hook_installed = True
 
 
 MODULE = ModuleSpec(
     id="kanji_gate",
-    label="Kanji Gate",
+    label="Kanji Unlocker",
     order=40,
     init=_init,
     run_items=[
         {
-            "label": "Run Kanji Gate",
+            "label": "Run Kanji Unlocker",
             "callback": lambda: run_kanji_gate(reason="manual"),
             "enabled_fn": _enabled_kanji,
             "order": 30,

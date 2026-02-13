@@ -10,6 +10,8 @@ from aqt.utils import openLink, showInfo
 from .. import config, logging
 from ..logging import DEBUG_LOG_PATH
 
+_REFRESH_CALLBACKS: list = []
+
 
 def open_debug_log() -> None:
     path = DEBUG_LOG_PATH
@@ -41,7 +43,7 @@ def _mark_notetypes_installed() -> None:
         with open(config.CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
     except Exception as exc:
-        logging.dbg("failed to persist installer.notetypes_installed", repr(exc))
+        logging.warn("failed to persist installer.notetypes_installed", repr(exc), source="menu")
     config.reload_config()
 
 
@@ -54,7 +56,7 @@ def reset_notetypes_installed() -> None:
         with open(config.CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
     except Exception as exc:
-        logging.dbg("failed to reset installer.notetypes_installed", repr(exc))
+        logging.warn("failed to reset installer.notetypes_installed", repr(exc), source="menu")
     config.reload_config()
     refresh_menu_state()
 
@@ -81,6 +83,15 @@ def import_notetypes() -> None:
 
 def _open_addon_page(addon_id: str) -> None:
     openLink(f"https://ankiweb.net/shared/info/{addon_id}")
+
+
+def register_refresh_callback(callback) -> None:
+    if not callable(callback):
+        return
+    for cb in _REFRESH_CALLBACKS:
+        if cb is callback:
+            return
+    _REFRESH_CALLBACKS.append(callback)
 
 
 def _ensure_registry() -> dict[str, list[dict]]:
@@ -173,6 +184,11 @@ def refresh_menu_state() -> None:
         has_pkg = bool(_notetypes_package_path())
         install_action.setEnabled(has_pkg and not config.NOTETYPES_INSTALLED)
         install_action.setVisible(not config.NOTETYPES_INSTALLED)
+    for cb in list(_REFRESH_CALLBACKS):
+        try:
+            cb()
+        except Exception:
+            continue
 
 
 def _run_all() -> None:
@@ -288,11 +304,19 @@ def install_menu(
     mw._ajpc_install_action = install_action
 
     recommended_menu = QMenu("Recommended Addons", mw)
-    anki_note_linker = QAction("Anki Note Linker", mw)
-    anki_note_linker.triggered.connect(lambda: _open_addon_page("1077002392"))
-    recommended_menu.addAction(anki_note_linker)
+
+    onigiri = QAction("🍙Onigiri - A more modern Anki for your studies (by ✌️Peace)", mw)
+    onigiri.triggered.connect(lambda: _open_addon_page("1011095603"))
+    recommended_menu.addAction(onigiri)
+
+    ankiconnect = QAction("AnkiConnect", mw)
+    ankiconnect.triggered.connect(lambda: _open_addon_page("2055492159"))
+    recommended_menu.addAction(ankiconnect)
+
     menu.addMenu(recommended_menu)
     mw._ajpc_recommended_menu = recommended_menu
+
+    
 
     mw._ajpc_run_menu = run_menu
     mw._ajpc_settings_menu = settings_menu
@@ -300,6 +324,7 @@ def install_menu(
     mw._ajpc_menu_api = {
         "register": register_external_action,
         "refresh": refresh_menu_state,
+        "register_refresh_callback": register_refresh_callback,
     }
 
     refresh_menu_state()
