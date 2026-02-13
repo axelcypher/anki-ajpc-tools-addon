@@ -233,6 +233,7 @@ All settings are configured via the Add-on Settings UI:
 
 * **Settings -> Main Settings**
 * Field explanations are available via **hover tooltips on labels**.
+* Link rendering in `link_core` is always handled directly by AJpC (`convert_links(...)`).
 
 Note: You should always ***back up your collection before using add-ons.*** While this add-on can't delete cards, it uses tags for some functionality, 
 and ***misconfiguration could scramble up your decks!***
@@ -270,7 +271,6 @@ This creates platform-separated vendor folders used by runtime loading:
 Those add-ons inspired some of the functionallity of this add-on. Due to unwanted behavior, deprecation or special needs that those addons didn't provide, i had to create my own implementations.
 
 - [Kanji Unlock Addon](https://ankiweb.net/shared/info/953200781) - Technically, nothing in this add-on is based on it, nor did I get the idea for the “Kanji Unlocker” from it. I discovered it after my first working prototype, but due to the similarity, I didn’t want to exclude it from this list.
-- [Auto Note Linker](https://ankiweb.net/shared/info/1156904184) - The “Core Linker” feature is heavily inspired by this add-on. I created my own version due to the needs and complexity of the “Family Priority → Family links” and “Mass Linker” features, which inject note/card links when viewing a card. I also wanted better performance for the editor side panel, as force-graph (used by ANL) was way too overkill for this.
 - [Automatically Sort Cards Into Decks (Card Sorter)](https://ankiweb.net/shared/info/1310787152) - The "Card Sorter" feature is based on this add-on. It's a rework of the original that didn't work properly because of deprecated code and edge-case issues.
 - [🔂AnkiRestart - Quick Anki Rebooter, for Customize & Develop (Created by Shigeඞ)](https://ankiweb.net/shared/info/237169833) - The restart feature under "Debug" is inspired by shigeඞs method of restarting Anki. Due to it being to fast with no config option for delay, often it tried to restart while Anki wasn't closed yet. (Mainly used for debugging, where i had to restart anki multiple times in short succession)
 

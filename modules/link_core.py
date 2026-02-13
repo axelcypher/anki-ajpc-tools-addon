@@ -13,7 +13,7 @@ from aqt.qt import QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QSpinBox, QVB
 from aqt.utils import tooltip
 
 from . import ModuleSpec
-from ._link_renderer import convert_links, existing_link_targets, wrap_anl_links
+from ._link_renderer import convert_links, existing_link_targets
 from ._note_editor import open_note_editor
 
 ADDON_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -132,25 +132,6 @@ def _iter_providers() -> list[tuple[str, int, ProviderFn]]:
         items.append((provider_id, prio, fn))
     items.sort(key=lambda x: (x[1], x[0]))
     return items
-
-
-def _is_note_linker_installed() -> bool:
-    if mw is None or not getattr(mw, "addonManager", None):
-        return False
-    try:
-        mgr = mw.addonManager
-        if hasattr(mgr, "all_addon_meta"):
-            for meta in mgr.all_addon_meta():
-                if getattr(meta, "dir_name", None) == "1077002392" and getattr(
-                    meta, "enabled", True
-                ):
-                    return True
-            return False
-        if hasattr(mgr, "allAddons"):
-            return "1077002392" in set(mgr.allAddons() or [])
-    except Exception:
-        return False
-    return False
 
 
 def _label_to_raw(label: str) -> str:
@@ -427,10 +408,7 @@ def _inject_links(text: str, card: Card, kind: str) -> str:
 
 def _postprocess_links(text: str, card: Card, kind: str) -> str:
     html = text
-    if _is_note_linker_installed():
-        html, _wrapped = wrap_anl_links(html)
-    else:
-        html, _converted = convert_links(html, use_anl=False)
+    html, _converted = convert_links(html)
     return html
 
 
