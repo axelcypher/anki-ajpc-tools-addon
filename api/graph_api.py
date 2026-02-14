@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any
 
 from aqt import mw
@@ -510,12 +511,77 @@ def _payload_refs_for_graph_api(payload: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _normalize_provider_kinds_for_graph_api(raw: Any) -> tuple[str, ...]:
+    if raw is None:
+        return ("reviewQuestion", "reviewAnswer")
+    if isinstance(raw, str):
+        values = [raw]
+    else:
+        try:
+            values = list(raw)
+        except Exception:
+            values = [raw]
+    out: list[str] = []
+    for value in values:
+        v = str(value or "").strip().lower()
+        if not v:
+            continue
+        if v in ("reviewquestion", "question", "front"):
+            kind = "reviewQuestion"
+        elif v in ("reviewanswer", "answer", "back"):
+            kind = "reviewAnswer"
+        elif v in ("both", "all"):
+            kind = ""
+        else:
+            continue
+        if not kind:
+            out = ["reviewQuestion", "reviewAnswer"]
+            break
+        if kind not in out:
+            out.append(kind)
+    if not out:
+        return ("reviewQuestion", "reviewAnswer")
+    return tuple(out)
+
+
+def _provider_target_note_type_scope_for_graph_api(
+    providers: list[tuple[str, int, Any, str, str]],
+) -> set[int] | None:
+    scoped_mids: set[int] = set()
+    for _provider_id, _prio, provider_fn, _category, _provider_name in providers:
+        getter = getattr(provider_fn, "_ajpc_target_note_type_ids", None)
+        if not callable(getter):
+            return None
+        try:
+            raw = getter()
+        except Exception:
+            return None
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            values = [raw]
+        else:
+            try:
+                values = list(raw)
+            except Exception:
+                values = [raw]
+        for value in values:
+            try:
+                mid = int(value or 0)
+            except Exception:
+                continue
+            if mid > 0:
+                scoped_mids.add(mid)
+    return scoped_mids
+
+
 def get_link_provider_edges(
     *,
     note_ids: list[int] | None = None,
     provider_ids: list[str] | None = None,
     include_family: bool = False,
 ) -> dict[str, Any]:
+    total_t0 = time.perf_counter()
     if mw is None or not getattr(mw, "col", None):
         return {"providers": [], "edges": []}
 
@@ -549,6 +615,7 @@ def get_link_provider_edges(
         return {"providers": [], "edges": []}
 
     col = mw.col
+    source_resolve_t0 = time.perf_counter()
     source_nids: list[int] = []
     if note_ids:
         seen_nids: set[int] = set()
@@ -562,25 +629,61 @@ def get_link_provider_edges(
             seen_nids.add(val)
             source_nids.append(val)
     else:
-        try:
-            source_nids = [int(x) for x in (col.find_notes("") or []) if int(x) > 0]
-        except Exception:
+        scoped_mids = _provider_target_note_type_scope_for_graph_api(providers)
+        if scoped_mids is None:
+            try:
+                source_nids = [int(x) for x in (col.find_notes("") or []) if int(x) > 0]
+            except Exception:
+                source_nids = []
+        elif not scoped_mids:
             source_nids = []
+        else:
+            placeholders = ",".join(["?"] * len(scoped_mids))
+            try:
+                rows = col.db.list(
+                    f"select id from notes where mid in ({placeholders})",
+                    *sorted(scoped_mids),
+                )
+                source_nids = [int(x) for x in (rows or []) if int(x) > 0]
+            except Exception:
+                source_nids = []
+    source_resolve_ms = int((time.perf_counter() - source_resolve_t0) * 1000)
 
     providers_meta = [
         {"id": pid, "name": provider_name, "order": int(prio), "category": category}
         for pid, prio, _fn, category, provider_name in providers
     ]
     if not source_nids:
+        logging.dbg(
+            "graph_api provider edges",
+            "providers=",
+            len(providers_meta),
+            "source_notes=0",
+            "edges=0",
+            "source_resolve_ms=",
+            source_resolve_ms,
+            "total_ms=",
+            int((time.perf_counter() - total_t0) * 1000),
+            source="graph_api",
+        )
         return {"providers": providers_meta, "edges": []}
 
     edges: list[dict[str, Any]] = []
     seen_edges: set[tuple[str, int, str, int, str, str]] = set()
+    provider_request_caches: dict[str, dict[str, Any]] = {}
+    card_target_cache: dict[int, int] = {}
+    provider_calls = 0
+    payload_count = 0
+    ref_count = 0
+    notes_count = 0
+    cards_count = 0
+    collect_t0 = time.perf_counter()
     for source_nid in source_nids:
         try:
             note = col.get_note(int(source_nid))
         except Exception:
             continue
+        notes_count += 1
         try:
             cards = note.cards() or []
         except Exception:
@@ -588,10 +691,21 @@ def get_link_provider_edges(
         if not cards:
             continue
         for card in cards:
+            cards_count += 1
             known_nids: set[int] = set()
             known_cids: set[int] = set()
-            for kind in ("reviewQuestion", "reviewAnswer"):
-                for provider_id, _prio, provider_fn, category, provider_name in providers:
+            for provider_id, _prio, provider_fn, category, provider_name in providers:
+                kinds_fn = getattr(provider_fn, "_ajpc_kinds_for_target", None)
+                if callable(kinds_fn):
+                    try:
+                        kinds = _normalize_provider_kinds_for_graph_api(kinds_fn(note, card))
+                    except Exception:
+                        kinds = ("reviewQuestion", "reviewAnswer")
+                else:
+                    kinds = ("reviewQuestion", "reviewAnswer")
+                provider_cache = provider_request_caches.setdefault(str(provider_id), {})
+                for kind in kinds:
+                    provider_calls += 1
                     try:
                         ctx = link_core.ProviderContext(
                             card=card,
@@ -600,12 +714,15 @@ def get_link_provider_edges(
                             html="",
                             existing_nids=set(known_nids),
                             existing_cids=set(known_cids),
+                            cache=provider_cache,
                         )
                         payloads = provider_fn(ctx) or []
                     except Exception:
                         continue
+                    payload_count += len(payloads)
                     for payload in payloads:
                         for ref in _payload_refs_for_graph_api(payload):
+                            ref_count += 1
                             ref_kind = str(ref.get("kind", "nid") or "nid").strip().lower()
                             ref_target = int(ref.get("target_id", 0) or 0)
                             ref_label = str(ref.get("label", "") or "")
@@ -616,16 +733,17 @@ def get_link_provider_edges(
                             target_nid = 0
                             if ref_kind == "cid":
                                 known_cids.add(ref_target)
-                                try:
-                                    target_nid = int(col.get_card(ref_target).nid)
-                                except Exception:
-                                    target_nid = 0
+                                if ref_target in card_target_cache:
+                                    target_nid = card_target_cache[ref_target]
+                                else:
+                                    try:
+                                        target_nid = int(col.get_card(ref_target).nid)
+                                    except Exception:
+                                        target_nid = 0
+                                    card_target_cache[ref_target] = target_nid
                             else:
                                 known_nids.add(ref_target)
-                                try:
-                                    target_nid = int(col.get_note(ref_target).id)
-                                except Exception:
-                                    target_nid = 0
+                                target_nid = ref_target
                             if target_nid <= 0:
                                 continue
 
@@ -654,6 +772,7 @@ def get_link_provider_edges(
                                     "group": str(ref_group),
                                 }
                             )
+    collect_ms = int((time.perf_counter() - collect_t0) * 1000)
 
     logging.dbg(
         "graph_api provider edges",
@@ -661,8 +780,24 @@ def get_link_provider_edges(
         len(providers_meta),
         "source_notes=",
         len(source_nids),
+        "resolved_notes=",
+        notes_count,
+        "cards=",
+        cards_count,
+        "provider_calls=",
+        provider_calls,
+        "payloads=",
+        payload_count,
+        "refs=",
+        ref_count,
         "edges=",
         len(edges),
+        "source_resolve_ms=",
+        source_resolve_ms,
+        "collect_ms=",
+        collect_ms,
+        "total_ms=",
+        int((time.perf_counter() - total_t0) * 1000),
         source="graph_api",
     )
     return {"providers": providers_meta, "edges": edges}

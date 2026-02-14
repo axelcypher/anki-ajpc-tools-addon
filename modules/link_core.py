@@ -63,6 +63,7 @@ class ProviderContext:
     html: str
     existing_nids: set[int]
     existing_cids: set[int]
+    cache: dict[str, Any] | None = None
 
 
 ProviderFn = Callable[[ProviderContext], list[LinkPayload]]

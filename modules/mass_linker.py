@@ -655,38 +655,99 @@ def _eval_conditions(note: Any, conditions: list[dict[str, Any]]) -> bool:
     return bool(result) if result is not None else True
 
 
-def _find_notes_by_tag(tag: str) -> list[int]:
+def _cache_bucket(ctx_cache: dict[str, Any] | None, key: str) -> dict[Any, Any] | None:
+    if not isinstance(ctx_cache, dict):
+        return None
+    raw = ctx_cache.get(key)
+    if isinstance(raw, dict):
+        return raw
+    bucket: dict[Any, Any] = {}
+    ctx_cache[key] = bucket
+    return bucket
+
+
+def _find_notes_by_tag(tag: str, *, ctx_cache: dict[str, Any] | None = None) -> list[int]:
     if mw is None or not getattr(mw, "col", None):
         return []
     q = str(tag or "").strip()
     if not q:
         return []
+    by_tag = _cache_bucket(ctx_cache, "notes_by_tag")
+    if by_tag is not None and q in by_tag:
+        try:
+            return [int(x) for x in (by_tag.get(q) or []) if int(x) > 0]
+        except Exception:
+            return []
     try:
-        return list(mw.col.find_notes(f"tag:{q}"))
+        out = [int(x) for x in (mw.col.find_notes(f"tag:{q}") or []) if int(x) > 0]
+        if by_tag is not None:
+            by_tag[q] = list(out)
+        return out
     except Exception as exc:
         log_warn("mass_linker: tag search failed", q, repr(exc))
         return []
 
 
-def _find_notes_by_mid(mid_str: str) -> list[int]:
+def _find_notes_by_mid(mid_str: str, *, ctx_cache: dict[str, Any] | None = None) -> list[int]:
     if mw is None or not getattr(mw, "col", None):
         return []
     try:
         mid = int(str(mid_str).strip())
     except Exception:
         return []
+    by_mid = _cache_bucket(ctx_cache, "notes_by_mid")
+    if by_mid is not None and mid in by_mid:
+        try:
+            return [int(x) for x in (by_mid.get(mid) or []) if int(x) > 0]
+        except Exception:
+            return []
     try:
-        return list(mw.col.db.list("select id from notes where mid = ?", mid))
+        out = [int(x) for x in (mw.col.db.list("select id from notes where mid = ?", mid) or []) if int(x) > 0]
+        if by_mid is not None:
+            by_mid[mid] = list(out)
+        return out
     except Exception:
         return []
 
 
-def _refs_from_nids(nids: list[int], label_field: str) -> list[LinkRef]:
+def _note_from_nid(nid: int, *, ctx_cache: dict[str, Any] | None = None) -> Any:
+    by_nid = _cache_bucket(ctx_cache, "note_by_nid")
+    if by_nid is not None and nid in by_nid:
+        return by_nid.get(nid)
+    try:
+        note = mw.col.get_note(int(nid))
+    except Exception:
+        note = None
+    if by_nid is not None:
+        by_nid[nid] = note
+    return note
+
+
+def _cards_from_note(note: Any, nid: int, *, ctx_cache: dict[str, Any] | None = None) -> list[Card]:
+    by_nid = _cache_bucket(ctx_cache, "cards_by_nid")
+    if by_nid is not None and nid in by_nid:
+        cards_cached = by_nid.get(nid)
+        if isinstance(cards_cached, list):
+            return cards_cached
+    try:
+        cards = list(note.cards() or [])
+    except Exception:
+        cards = []
+    if by_nid is not None:
+        by_nid[nid] = cards
+    return cards
+
+
+def _refs_from_nids(
+    nids: list[int],
+    label_field: str,
+    *,
+    ctx_cache: dict[str, Any] | None = None,
+) -> list[LinkRef]:
     out: list[LinkRef] = []
     for nid in nids:
-        try:
-            note = mw.col.get_note(int(nid))
-        except Exception:
+        note = _note_from_nid(int(nid), ctx_cache=ctx_cache)
+        if note is None:
             continue
         label = _label_for_note(note, label_field)
         out.append(LinkRef(label=label, kind="nid", target_id=int(nid)))
@@ -700,11 +761,12 @@ def _refs_from_notes_with_card_targets(
     target_card: Card,
     rule: dict[str, Any],
     label_field: str,
+    ctx_cache: dict[str, Any] | None = None,
 ) -> list[LinkRef]:
     refs: list[LinkRef] = []
     target_mode = str(rule.get("target_mode", "note")).strip().lower() or "note"
     if target_mode != "card":
-        return _refs_from_nids(source_nids, label_field)
+        return _refs_from_nids(source_nids, label_field, ctx_cache=ctx_cache)
 
     fallback_templates = {str(x).strip() for x in (rule.get("source_templates") or []) if str(x).strip()}
     mapping_field = str(rule.get("mapping_field", "")).strip()
@@ -724,18 +786,29 @@ def _refs_from_notes_with_card_targets(
     if not selected_templates:
         return []
 
+    refs_cache = _cache_bucket(ctx_cache, "refs_by_rule_templates")
+    refs_cache_key = (
+        str(rule.get("id", "") or ""),
+        str(label_field or ""),
+        tuple(sorted(selected_templates)),
+    )
+    if refs_cache is not None and refs_cache_key in refs_cache:
+        cached = refs_cache.get(refs_cache_key) or []
+        return list(cached)
+
     for nid in source_nids:
-        try:
-            src_note = mw.col.get_note(int(nid))
-            src_cards = src_note.cards()
-        except Exception:
+        src_note = _note_from_nid(int(nid), ctx_cache=ctx_cache)
+        if src_note is None:
             continue
+        src_cards = _cards_from_note(src_note, int(nid), ctx_cache=ctx_cache)
         label = _label_for_note(src_note, label_field)
         for c in src_cards:
             ord_val = _template_ord(c)
             if ord_val not in selected_templates:
                 continue
             refs.append(LinkRef(label=label, kind="cid", target_id=int(c.id)))
+    if refs_cache is not None:
+        refs_cache[refs_cache_key] = list(refs)
     return refs
 
 
@@ -803,34 +876,56 @@ def _browser_context_menu(browser, menu, *_args) -> None:
         return
 
 
-def _link_refs_for_tag(tag: str, label_field: str) -> list[LinkRef]:
-    nids = _find_notes_by_tag(tag)
+def _link_refs_for_tag(
+    tag: str,
+    label_field: str,
+    *,
+    ctx_cache: dict[str, Any] | None = None,
+) -> list[LinkRef]:
+    nids = _find_notes_by_tag(tag, ctx_cache=ctx_cache)
     _dbg("tag search", tag, "matches", len(nids))
-    return _refs_from_nids([int(x) for x in nids], label_field)
+    return _refs_from_nids([int(x) for x in nids], label_field, ctx_cache=ctx_cache)
 
 
-def _rule_matches_target(rule: dict[str, Any], ctx: ProviderContext) -> bool:
+def _rule_matches_target_for_kind(
+    rule: dict[str, Any],
+    *,
+    kind: str,
+    note: Any,
+    card: Card,
+    include_conditions: bool = True,
+) -> bool:
     mode = str(rule.get("mode", "basic")).strip().lower() or "basic"
     side = str(rule.get("side", "both")).lower()
-    if ctx.kind == "reviewQuestion" and side not in ("front", "both"):
+    if kind == "reviewQuestion" and side not in ("front", "both"):
         return False
-    if ctx.kind != "reviewQuestion" and side not in ("back", "both"):
+    if kind != "reviewQuestion" and side not in ("back", "both"):
         return False
 
     target_nt = {str(x).strip() for x in (rule.get("target_note_types") or []) if str(x).strip()}
-    if target_nt and str(ctx.note.mid) not in target_nt:
+    if target_nt and str(note.mid) not in target_nt:
         return False
 
     wanted_templates = {str(x).strip() for x in (rule.get("target_templates") or []) if str(x).strip()}
-    tmpl_ord = _template_ord(ctx.card)
+    tmpl_ord = _template_ord(card)
     if wanted_templates and tmpl_ord not in wanted_templates:
         return False
 
-    if mode != "basic":
+    if include_conditions and mode != "basic":
         target_conditions = [x for x in (rule.get("target_conditions") or []) if isinstance(x, dict)]
-        if target_conditions and not _eval_conditions(ctx.note, target_conditions):
+        if target_conditions and not _eval_conditions(note, target_conditions):
             return False
     return True
+
+
+def _rule_matches_target(rule: dict[str, Any], ctx: ProviderContext) -> bool:
+    return _rule_matches_target_for_kind(
+        rule,
+        kind=str(ctx.kind or ""),
+        note=ctx.note,
+        card=ctx.card,
+        include_conditions=True,
+    )
 
 
 def _source_note_passes(rule: dict[str, Any], note: Any) -> bool:
@@ -843,7 +938,12 @@ def _source_note_passes(rule: dict[str, Any], note: Any) -> bool:
     return _eval_conditions(note, source_conditions)
 
 
-def _refs_for_rule(rule: dict[str, Any], ctx: ProviderContext) -> list[LinkRef]:
+def _refs_for_rule(
+    rule: dict[str, Any],
+    ctx: ProviderContext,
+    *,
+    ctx_cache: dict[str, Any] | None = None,
+) -> list[LinkRef]:
     mode = str(rule.get("mode", "basic")).strip().lower() or "basic"
     label_field = str(rule.get("source_label_field", "")).strip()
 
@@ -855,12 +955,11 @@ def _refs_for_rule(rule: dict[str, Any], ctx: ProviderContext) -> list[LinkRef]:
         selector_field = str(rule.get("selector_field", "")).strip()
         selector_value = _field_text(ctx.note, selector_field).strip() if selector_field else ""
         search_tag = f"{base}{sep}{selector_value}" if selector_value else base
-        nids = _find_notes_by_tag(search_tag)
+        nids = _find_notes_by_tag(search_tag, ctx_cache=ctx_cache)
         refs: list[LinkRef] = []
         for nid in nids:
-            try:
-                src_note = mw.col.get_note(int(nid))
-            except Exception:
+            src_note = _note_from_nid(int(nid), ctx_cache=ctx_cache)
+            if src_note is None:
                 continue
             if not _source_note_passes(rule, src_note):
                 continue
@@ -872,41 +971,51 @@ def _refs_for_rule(rule: dict[str, Any], ctx: ProviderContext) -> list[LinkRef]:
         src_nt = str(rule.get("source_note_type", "")).strip()
         if not src_nt:
             return []
-        source_nids = _find_notes_by_mid(src_nt)
-        filtered_nids: list[int] = []
-        for nid in source_nids:
-            try:
-                src_note = mw.col.get_note(int(nid))
-            except Exception:
-                continue
-            if _source_note_passes(rule, src_note):
-                filtered_nids.append(int(nid))
+        rule_sources = _cache_bucket(ctx_cache, "rule_source_nids")
+        rule_key = str(rule.get("id") or f"mid:{src_nt}")
+        if rule_sources is not None and rule_key in rule_sources:
+            filtered_nids = [int(x) for x in (rule_sources.get(rule_key) or []) if int(x) > 0]
+        else:
+            source_nids = _find_notes_by_mid(src_nt, ctx_cache=ctx_cache)
+            filtered_nids: list[int] = []
+            for nid in source_nids:
+                src_note = _note_from_nid(int(nid), ctx_cache=ctx_cache)
+                if src_note is None:
+                    continue
+                if _source_note_passes(rule, src_note):
+                    filtered_nids.append(int(nid))
+            if rule_sources is not None:
+                rule_sources[rule_key] = list(filtered_nids)
         return _refs_from_notes_with_card_targets(
             filtered_nids,
             target_note=ctx.note,
             target_card=ctx.card,
             rule=rule,
             label_field=label_field,
+            ctx_cache=ctx_cache,
         )
 
     # basic
     tag = str(rule.get("source_tag", "")).strip()
     if not tag:
         return []
-    return _link_refs_for_tag(tag, label_field)
+    return _link_refs_for_tag(tag, label_field, ctx_cache=ctx_cache)
 
 
 def _mass_link_provider(ctx: ProviderContext) -> list[LinkPayload]:
-    try:
-        config.reload_config()
-    except Exception:
-        pass
     if not config.MASS_LINKER_ENABLED:
         return []
     if mw is None or not getattr(mw, "col", None):
         return []
 
-    rules = _rule_tabs()
+    ctx_cache = ctx.cache if isinstance(ctx.cache, dict) else None
+    rules_cache = _cache_bucket(ctx_cache, "rules")
+    if rules_cache is not None and "__all__" in rules_cache:
+        rules = list(rules_cache.get("__all__") or [])
+    else:
+        rules = _rule_tabs()
+        if rules_cache is not None:
+            rules_cache["__all__"] = list(rules)
     if not rules:
         return []
 
@@ -919,7 +1028,7 @@ def _mass_link_provider(ctx: ProviderContext) -> list[LinkPayload]:
         if not _rule_matches_target(rule, ctx):
             continue
 
-        refs = _refs_for_rule(rule, ctx)
+        refs = _refs_for_rule(rule, ctx, ctx_cache=ctx_cache)
         if not refs:
             continue
 
@@ -949,6 +1058,57 @@ def _mass_link_provider(ctx: ProviderContext) -> list[LinkPayload]:
         )
 
     return payloads
+
+
+def _mass_link_provider_target_note_type_ids() -> list[int] | None:
+    if not config.MASS_LINKER_ENABLED:
+        return []
+    mids: set[int] = set()
+    has_enabled_rule = False
+    for rule in _rule_tabs():
+        if not bool(rule.get("enabled", True)):
+            continue
+        has_enabled_rule = True
+        target_nt = [str(x).strip() for x in (rule.get("target_note_types") or []) if str(x).strip()]
+        if not target_nt:
+            return None
+        for value in target_nt:
+            try:
+                mid = int(value or 0)
+            except Exception:
+                continue
+            if mid > 0:
+                mids.add(mid)
+    if not has_enabled_rule:
+        return []
+    return sorted(mids)
+
+
+def _mass_link_provider_kinds_for_target(note: Any, card: Card) -> list[str]:
+    if not config.MASS_LINKER_ENABLED:
+        return []
+    rules = _rule_tabs()
+    if not rules:
+        return []
+    out: list[str] = []
+    for kind in ("reviewQuestion", "reviewAnswer"):
+        for rule in rules:
+            if not bool(rule.get("enabled", True)):
+                continue
+            if _rule_matches_target_for_kind(
+                rule,
+                kind=kind,
+                note=note,
+                card=card,
+                include_conditions=False,
+            ):
+                out.append(kind)
+                break
+    return out
+
+
+_mass_link_provider._ajpc_target_note_type_ids = _mass_link_provider_target_note_type_ids  # type: ignore[attr-defined]
+_mass_link_provider._ajpc_kinds_for_target = _mass_link_provider_kinds_for_target  # type: ignore[attr-defined]
 
 
 def _install_mass_linker_ui_hooks() -> None:
