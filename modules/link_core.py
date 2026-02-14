@@ -67,6 +67,7 @@ class ProviderContext:
 
 ProviderFn = Callable[[ProviderContext], list[LinkPayload]]
 _PROVIDERS: dict[str, tuple[int, ProviderFn]] = {}
+_PROVIDER_NAMES: dict[str, str] = {}
 
 
 def _load_config() -> dict[str, Any]:
@@ -119,10 +120,39 @@ def _reload_config() -> None:
     LINK_CORE_EDITOR_SIDEBAR_RATIO = max(0.10, min(0.60, LINK_CORE_EDITOR_SIDEBAR_RATIO))
 
 
-def register_provider(provider_id: str, provider: ProviderFn, *, order: int = 100) -> None:
-    if not provider_id or not callable(provider):
+def _default_provider_name(provider_id: str) -> str:
+    raw = str(provider_id or "").strip()
+    if not raw:
+        return "Unknown"
+    parts = [p for p in re.split(r"[^A-Za-z0-9]+", raw) if p]
+    if not parts:
+        return raw
+    return " ".join(p[:1].upper() + p[1:] for p in parts)
+
+
+def _provider_name(provider_id: str) -> str:
+    pid = str(provider_id or "").strip()
+    if not pid:
+        return "Unknown"
+    name = str(_PROVIDER_NAMES.get(pid, "") or "").strip()
+    if name:
+        return name
+    return _default_provider_name(pid)
+
+
+def register_provider(
+    provider_id: str,
+    provider: ProviderFn,
+    *,
+    order: int = 100,
+    name: str = "",
+) -> None:
+    pid = str(provider_id or "").strip()
+    if not pid or not callable(provider):
         return
-    _PROVIDERS[str(provider_id)] = (int(order), provider)
+    _PROVIDERS[pid] = (int(order), provider)
+    display_name = str(name or "").strip()
+    _PROVIDER_NAMES[pid] = display_name or _default_provider_name(pid)
 
 
 def _iter_providers() -> list[tuple[str, int, ProviderFn]]:
@@ -131,6 +161,13 @@ def _iter_providers() -> list[tuple[str, int, ProviderFn]]:
         prio, fn = payload
         items.append((provider_id, prio, fn))
     items.sort(key=lambda x: (x[1], x[0]))
+    return items
+
+
+def _iter_provider_meta() -> list[tuple[str, int, ProviderFn, str]]:
+    items: list[tuple[str, int, ProviderFn, str]] = []
+    for provider_id, prio, fn in _iter_providers():
+        items.append((provider_id, prio, fn, _provider_name(provider_id)))
     return items
 
 

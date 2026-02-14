@@ -408,22 +408,65 @@ def _provider_category_for_graph_api(provider_id: str) -> str:
     return "other"
 
 
-def _iter_link_providers_for_graph_api() -> list[tuple[str, int, Any]]:
+def _iter_link_providers_for_graph_api() -> list[tuple[str, int, Any, str]]:
     try:
         from ..modules import link_core
     except Exception:
         return []
     try:
-        return list(link_core._iter_providers())  # type: ignore[attr-defined]
+        if callable(getattr(link_core, "_iter_provider_meta", None)):
+            return list(link_core._iter_provider_meta())  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    try:
+        providers = list(link_core._iter_providers())  # type: ignore[attr-defined]
+        name_fn = getattr(link_core, "_provider_name", None)
+        out_direct: list[tuple[str, int, Any, str]] = []
+        for provider_id, prio, fn in providers:
+            pid = str(provider_id or "").strip()
+            if not pid:
+                continue
+            name = ""
+            if callable(name_fn):
+                try:
+                    name = str(name_fn(pid) or "").strip()
+                except Exception:
+                    name = ""
+            if not name:
+                name = " ".join([p[:1].upper() + p[1:] for p in pid.replace("-", "_").split("_") if p]) or pid
+            out_direct.append((pid, int(prio), fn, name))
+        return out_direct
     except Exception:
         pass
     providers = getattr(link_core, "_PROVIDERS", {})
-    out: list[tuple[str, int, Any]] = []
+    provider_names = getattr(link_core, "_PROVIDER_NAMES", {})
+    out: list[tuple[str, int, Any, str]] = []
     if isinstance(providers, dict):
         for provider_id, payload in providers.items():
             try:
-                prio, fn = payload
-                out.append((str(provider_id), int(prio), fn))
+                pid = str(provider_id or "").strip()
+                if not pid:
+                    continue
+                prio = 100
+                fn = None
+                name = ""
+                if isinstance(payload, dict):
+                    prio = int(payload.get("order", 100))
+                    fn = payload.get("provider")
+                    name = str(payload.get("name", "") or "").strip()
+                elif isinstance(payload, (list, tuple)):
+                    if len(payload) >= 2:
+                        prio = int(payload[0])
+                        fn = payload[1]
+                    if len(payload) >= 3:
+                        name = str(payload[2] or "").strip()
+                if not callable(fn):
+                    continue
+                if not name and isinstance(provider_names, dict):
+                    name = str(provider_names.get(pid, "") or "").strip()
+                if not name:
+                    name = " ".join([p[:1].upper() + p[1:] for p in pid.replace("-", "_").split("_") if p]) or pid
+                out.append((pid, prio, fn, name))
             except Exception:
                 continue
     out.sort(key=lambda x: (x[1], x[0]))
@@ -486,8 +529,8 @@ def get_link_provider_edges(
         str(x).strip().lower() for x in (provider_ids or []) if str(x).strip()
     }
 
-    providers: list[tuple[str, int, Any, str]] = []
-    for provider_id, prio, fn in providers_all:
+    providers: list[tuple[str, int, Any, str, str]] = []
+    for provider_id, prio, fn, provider_name in providers_all:
         pid = str(provider_id or "").strip()
         if not pid or not callable(fn):
             continue
@@ -497,7 +540,10 @@ def get_link_provider_edges(
         category = _provider_category_for_graph_api(pid)
         if category == "family" and not include_family:
             continue
-        providers.append((pid, int(prio), fn, category))
+        pname = str(provider_name or "").strip()
+        if not pname:
+            pname = " ".join([p[:1].upper() + p[1:] for p in pid.replace("-", "_").split("_") if p]) or pid
+        providers.append((pid, int(prio), fn, category, pname))
 
     if not providers:
         return {"providers": [], "edges": []}
@@ -522,8 +568,8 @@ def get_link_provider_edges(
             source_nids = []
 
     providers_meta = [
-        {"id": pid, "order": int(prio), "category": category}
-        for pid, prio, _fn, category in providers
+        {"id": pid, "name": provider_name, "order": int(prio), "category": category}
+        for pid, prio, _fn, category, provider_name in providers
     ]
     if not source_nids:
         return {"providers": providers_meta, "edges": []}
@@ -545,7 +591,7 @@ def get_link_provider_edges(
             known_nids: set[int] = set()
             known_cids: set[int] = set()
             for kind in ("reviewQuestion", "reviewAnswer"):
-                for provider_id, _prio, provider_fn, category in providers:
+                for provider_id, _prio, provider_fn, category, provider_name in providers:
                     try:
                         ctx = link_core.ProviderContext(
                             card=card,
@@ -597,6 +643,7 @@ def get_link_provider_edges(
                             edges.append(
                                 {
                                     "provider_id": str(provider_id),
+                                    "provider_name": str(provider_name),
                                     "provider_category": str(category),
                                     "source_nid": int(source_nid),
                                     "source_cid": int(getattr(card, "id", 0) or 0),

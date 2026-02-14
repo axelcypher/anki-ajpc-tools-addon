@@ -1215,7 +1215,7 @@ def _init() -> None:
         run_family_gate(reason="sync")
 
     link_core.install_link_core()
-    link_core.register_provider("family_gate", _family_link_provider, order=200)
+    link_core.register_provider("family_gate", _family_link_provider, order=200, name="Family Gate")
 
     if mw is not None and not getattr(mw, "_ajpc_familygate_cache_hooks_installed", False):
         op_hook = getattr(gui_hooks, "operation_did_execute", None)

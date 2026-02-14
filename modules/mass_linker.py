@@ -1716,7 +1716,7 @@ def _init() -> None:
     from . import link_core
 
     link_core.install_link_core()
-    link_core.register_provider("mass_linker", _mass_link_provider, order=100)
+    link_core.register_provider("mass_linker", _mass_link_provider, order=100, name="Mass Linker")
     _install_mass_linker_ui_hooks()
 
 
