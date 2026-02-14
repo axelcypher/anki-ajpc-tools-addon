@@ -18,11 +18,12 @@ RUN_ON_SYNC = True
 RUN_ON_UI = True
 STICKY_UNLOCK = True
 RESTORE_MAIN_WINDOW_GEOMETRY = True
+GRAPH_PRELOAD_ON_STARTUP = False
 STABILITY_DEFAULT_THRESHOLD = 14.0
 STABILITY_AGG = "min"
 NOTETYPES_INSTALLED = False
 MASS_LINKER_ENABLED = True
-MASS_LINKER_RULES = {}
+MASS_LINKER_RULES: list[dict[str, Any]] = []
 MASS_LINKER_COPY_LABEL_FIELD = ""
 
 FAMILY_GATE_ENABLED = True
@@ -109,7 +110,7 @@ def reload_config() -> None:
     global CFG, DEBUG, DEBUG_VERIFY_SUSPENSION, DEBUG_SHOW_RESTART_BUTTON
     global DEBUG_LEVEL, DEBUG_MODULE_LOGS, DEBUG_MODULE_LEVELS
     global RUN_ON_SYNC, RUN_ON_UI
-    global RESTORE_MAIN_WINDOW_GEOMETRY
+    global RESTORE_MAIN_WINDOW_GEOMETRY, GRAPH_PRELOAD_ON_STARTUP
     global STICKY_UNLOCK, STABILITY_DEFAULT_THRESHOLD, STABILITY_AGG, NOTETYPES_INSTALLED
     global MASS_LINKER_ENABLED, MASS_LINKER_RULES, MASS_LINKER_COPY_LABEL_FIELD
     global FAMILY_GATE_ENABLED, FAMILY_FIELD, FAMILY_SEP, FAMILY_DEFAULT_PRIO, FAMILY_NOTE_TYPES
@@ -173,13 +174,14 @@ def reload_config() -> None:
     RUN_ON_SYNC = bool(cfg_get("run_on_sync", True))
     RUN_ON_UI = bool(cfg_get("run_on_ui", True))
     RESTORE_MAIN_WINDOW_GEOMETRY = bool(cfg_get("window_restore.enabled", True))
+    GRAPH_PRELOAD_ON_STARTUP = bool(cfg_get("graph.preload_on_startup", False))
 
     STICKY_UNLOCK = bool(cfg_get("sticky_unlock", True))
     STABILITY_DEFAULT_THRESHOLD = 14.0
     STABILITY_AGG = "min"
     NOTETYPES_INSTALLED = bool(cfg_get("installer.notetypes_installed", False))
     MASS_LINKER_ENABLED = bool(cfg_get("mass_linker.enabled", True))
-    MASS_LINKER_RULES = cfg_get("mass_linker.rules", {}) or {}
+    MASS_LINKER_RULES = cfg_get("mass_linker.rules", []) or []
     MASS_LINKER_COPY_LABEL_FIELD = str(
         cfg_get("mass_linker.label_field", cfg_get("mass_linker.copy_label_field", ""))
     ).strip()

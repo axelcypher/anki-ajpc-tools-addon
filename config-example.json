@@ -16,6 +16,9 @@
     "main_window_geometry": "",
     "main_window_state": ""
   },
+  "graph": {
+    "preload_on_startup": false
+  },
   "installer": {
     "notetypes_installed": false
   },
@@ -80,7 +83,7 @@
   "mass_linker": {
     "enabled": true,
     "label_field": "",
-    "rules": {}
+    "rules": []
   },
   "link_core": {
     "injection_field": "",

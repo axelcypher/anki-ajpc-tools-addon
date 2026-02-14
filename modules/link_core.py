@@ -412,9 +412,101 @@ def _postprocess_links(text: str, card: Card, kind: str) -> str:
     return html
 
 
+_FRONTSIDE_RE = re.compile(r"\{\{\s*FrontSide\s*\}\}", re.IGNORECASE)
+_ANSWER_HR_RE = re.compile(r"<hr[^>]*id\s*=\s*['\"]?answer['\"]?[^>]*>", re.IGNORECASE)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"\s+")
+
+
+def _card_has_distinct_back(card: Card) -> bool:
+    """Return True when the card template appears to render a distinct backside."""
+    try:
+        model = mw.col.models.get(card.note().mid)
+        tmpls = model.get("tmpls", []) if isinstance(model, dict) else []
+        ord_val = getattr(card, "ord", None)
+        if ord_val is None or ord_val < 0 or ord_val >= len(tmpls):
+            return True
+        tmpl = tmpls[ord_val]
+        if not isinstance(tmpl, dict):
+            return True
+        afmt = str(tmpl.get("afmt", "") or "")
+        if not afmt.strip():
+            return False
+        reduced = _FRONTSIDE_RE.sub("", afmt)
+        reduced = _ANSWER_HR_RE.sub("", reduced)
+        reduced = reduced.replace("&nbsp;", " ")
+        reduced = _HTML_TAG_RE.sub("", reduced)
+        reduced = _WS_RE.sub("", reduced)
+        if reduced:
+            return True
+        # Template only renders FrontSide/answer separator -> treat as no distinct backside.
+        return False
+    except Exception:
+        # Fail open: keep previous behaviour if detection is uncertain.
+        return True
+
+
+def _force_front_if_no_back(previewer: Previewer, card: Card) -> None:
+    if _card_has_distinct_back(card):
+        return
+    try:
+        setattr(previewer, "_show_both_sides", False)
+        setattr(previewer, "_state", "question")
+        previewer.render_card()
+    except Exception:
+        return
+
+
 def _handle_pycmd(handled: tuple[bool, Any], message: str, context: Any):
     if not isinstance(message, str):
         return handled
+    if message.startswith("AJPCNoteLinker-openPreviewCard"):
+        cid = message[len("AJPCNoteLinker-openPreviewCard") :]
+        if not cid.isdigit():
+            return True, None
+        try:
+            card = mw.col.get_card(int(cid))
+        except Exception:
+            tooltip("Linked card not found", period=2500)
+            return True, None
+
+        class _SingleCardPreviewer(Previewer):
+            def __init__(self, card: Card, mw, on_close):
+                self._card = card
+                super().__init__(parent=None, mw=mw, on_close=on_close)
+
+            def card(self) -> Card | None:
+                return self._card
+
+            def card_changed(self) -> bool:
+                return False
+
+        previewers = getattr(mw, "_ajpc_note_linker_previewers", None)
+        if not isinstance(previewers, list):
+            previewers = []
+            mw._ajpc_note_linker_previewers = previewers
+
+        previewer: _SingleCardPreviewer | None = None
+
+        def _on_close() -> None:
+            if previewer in previewers:
+                previewers.remove(previewer)
+
+        previewer = _SingleCardPreviewer(card, mw, _on_close)
+        previewers.append(previewer)
+        previewer.open()
+        _force_front_if_no_back(previewer, card)
+        return True, None
+    if message.startswith("AJPCNoteLinker-openEditorCard"):
+        cid = message[len("AJPCNoteLinker-openEditorCard") :]
+        if not cid.isdigit():
+            return True, None
+        try:
+            card = mw.col.get_card(int(cid))
+            open_note_editor(int(card.nid), title="AJpC Note Editor")
+        except Exception:
+            tooltip("Failed to open linked card note", period=2500)
+        return True, None
     if message.startswith("AJPCNoteLinker-openPreview"):
         nid = message[len("AJPCNoteLinker-openPreview") :]
         if not nid.isdigit():
@@ -455,6 +547,7 @@ def _handle_pycmd(handled: tuple[bool, Any], message: str, context: Any):
         previewer = _SingleCardPreviewer(card, mw, _on_close)
         previewers.append(previewer)
         previewer.open()
+        _force_front_if_no_back(previewer, card)
         return True, None
     if message.startswith("AJPCNoteLinker-openEditor"):
         nid = message[len("AJPCNoteLinker-openEditor") :]

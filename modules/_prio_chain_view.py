@@ -939,6 +939,15 @@ html, body {
     draw();
   });
 
+  canvas.addEventListener("contextmenu", (ev) => {
+    ev.preventDefault();
+    const n = pickNode(ev.offsetX, ev.offsetY);
+    if (!n || !n.nid) return;
+    state.selectedId = String(n.id || "");
+    pycmd("AJPCPrioChain-contextNid:" + String(Number(n.nid || 0)));
+    draw();
+  });
+
   window.addEventListener("resize", () => {
     resize();
     layout();
@@ -990,6 +999,7 @@ class PrioChainView(QWidget):
         super().__init__(parent)
         self._on_open_editor: Callable[[int], None] | None = None
         self._on_select: Callable[[int], None] | None = None
+        self._on_context_nid: Callable[[int], None] | None = None
         self._on_needed_height: Callable[[int], None] | None = None
         self._pending: dict[str, Any] = {"nodes": [], "edges": []}
         self.setMinimumHeight(130)
@@ -1014,6 +1024,9 @@ class PrioChainView(QWidget):
 
     def set_select_handler(self, callback: Callable[[int], None] | None) -> None:
         self._on_select = callback
+
+    def set_context_menu_handler(self, callback: Callable[[int], None] | None) -> None:
+        self._on_context_nid = callback
 
     def set_needed_height_handler(self, callback: Callable[[int], None] | None) -> None:
         self._on_needed_height = callback
@@ -1072,6 +1085,11 @@ class PrioChainView(QWidget):
             raw = cmd.split(":", 1)[1].strip()
             if raw.isdigit() and callable(self._on_select):
                 self._on_select(int(raw))
+            return None
+        if cmd.startswith("AJPCPrioChain-contextNid:"):
+            raw = cmd.split(":", 1)[1].strip()
+            if raw.isdigit() and callable(self._on_context_nid):
+                self._on_context_nid(int(raw))
             return None
         if cmd.startswith("AJPCPrioChain-neededHeight:"):
             raw = cmd.split(":", 1)[1].strip()

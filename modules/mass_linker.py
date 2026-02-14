@@ -13,8 +13,11 @@ from aqt.qt import (
     QCheckBox,
     QComboBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
+    QScrollArea,
     QStandardItem,
     QStandardItemModel,
     QTabWidget,
@@ -26,7 +29,7 @@ from aqt.utils import tooltip
 
 from .. import logging as core_logging
 from . import ModuleSpec
-from .link_core import LinkPayload, LinkRef, ProviderContext, WrapperSpec
+from .link_core import LinkGroup, LinkPayload, LinkRef, ProviderContext, WrapperSpec
 
 ADDON_DIR = os.path.dirname(os.path.dirname(__file__))
 CONFIG_PATH = os.path.join(ADDON_DIR, "config.json")
@@ -34,8 +37,7 @@ CONFIG_PATH = os.path.join(ADDON_DIR, "config.json")
 CFG: dict[str, Any] = {}
 DEBUG = False
 MASS_LINKER_ENABLED = True
-MASS_LINKER_RULES: dict[str, Any] = {}
-MASS_LINKER_LABEL_FIELD = ""
+MASS_LINKER_RULES: list[dict[str, Any]] = []
 
 
 def _load_config() -> dict[str, Any]:
@@ -66,9 +68,98 @@ def _cfg_set(cfg: dict[str, Any], path: str, value: Any) -> None:
     cur[parts[-1]] = value
 
 
+def _note_type_id_from_ident(col, ident: Any) -> str:
+    if ident is None:
+        return ""
+    s = str(ident).strip()
+    if not s:
+        return ""
+    if s.isdigit():
+        try:
+            mid = int(s)
+        except Exception:
+            return ""
+        return str(mid)
+    try:
+        model = col.models.by_name(s)
+    except Exception:
+        model = None
+    if not model:
+        return s
+    try:
+        return str(int(model.get("id")))
+    except Exception:
+        return s
+
+
+def _normalize_mass_linker_rules(raw: Any, col=None) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    if isinstance(raw, list):
+        for i, rule in enumerate(raw):
+            if not isinstance(rule, dict):
+                continue
+            item = dict(rule)
+            item["id"] = str(item.get("id") or f"rule_{i + 1}")
+            item["name"] = str(item.get("name") or f"Rule {i + 1}")
+            item["mode"] = str(item.get("mode") or "basic").strip().lower()
+            item["enabled"] = bool(item.get("enabled", True))
+            item["side"] = str(item.get("side") or "both").strip().lower()
+            item["group_name"] = str(item.get("group_name") or "").strip()
+            item["target_mode"] = str(item.get("target_mode") or "note").strip().lower()
+            item["selector_separator"] = str(item.get("selector_separator") or "::")
+            item["target_note_types"] = [str(x).strip() for x in (item.get("target_note_types") or []) if str(x).strip()]
+            item["target_templates"] = [str(x).strip() for x in (item.get("target_templates") or []) if str(x).strip()]
+            item["source_templates"] = [str(x).strip() for x in (item.get("source_templates") or []) if str(x).strip()]
+            item["target_conditions"] = [x for x in (item.get("target_conditions") or []) if isinstance(x, dict)]
+            item["source_conditions"] = [x for x in (item.get("source_conditions") or []) if isinstance(x, dict)]
+            item["source_template_mappings"] = [
+                x for x in (item.get("source_template_mappings") or []) if isinstance(x, dict)
+            ]
+            if col is not None:
+                item["target_note_types"] = [
+                    _note_type_id_from_ident(col, x) for x in item["target_note_types"]
+                ]
+                item["target_note_types"] = [x for x in item["target_note_types"] if x]
+                src_nt = str(item.get("source_note_type") or "").strip()
+                if src_nt:
+                    item["source_note_type"] = _note_type_id_from_ident(col, src_nt)
+            out.append(item)
+        return out
+    if not isinstance(raw, dict):
+        return out
+
+    # Hard-cut conversion of legacy dict rules keyed by target note type id.
+    for i, (nt_id, cfg) in enumerate(raw.items()):
+        if not isinstance(cfg, dict):
+            continue
+        target_nt = str(nt_id).strip()
+        name = f"Rule {i + 1}"
+        out.append(
+            {
+                "id": f"rule_{i + 1}",
+                "name": f"{name}",
+                "enabled": True,
+                "mode": "basic",
+                "group_name": "Mass Linker",
+                "side": str(cfg.get("side", "both")).strip().lower() or "both",
+                "source_tag": str(cfg.get("tag", "")).strip(),
+                "source_label_field": str(cfg.get("label_field", "")).strip(),
+                "target_note_types": [target_nt] if target_nt else [],
+                "target_templates": [str(x).strip() for x in (cfg.get("templates") or []) if str(x).strip()],
+                "target_conditions": [],
+                "source_conditions": [],
+                "selector_separator": "::",
+                "target_mode": "note",
+                "source_templates": [],
+                "source_template_mappings": [],
+            }
+        )
+    return out
+
+
 def reload_config() -> None:
     global CFG, DEBUG
-    global MASS_LINKER_ENABLED, MASS_LINKER_RULES, MASS_LINKER_LABEL_FIELD
+    global MASS_LINKER_ENABLED, MASS_LINKER_RULES
 
     CFG = _load_config()
 
@@ -79,52 +170,17 @@ def reload_config() -> None:
         DEBUG = bool(_dbg)
 
     MASS_LINKER_ENABLED = bool(cfg_get("mass_linker.enabled", True))
-    MASS_LINKER_RULES = cfg_get("mass_linker.rules", {}) or {}
-    MASS_LINKER_LABEL_FIELD = str(
-        cfg_get("mass_linker.label_field", cfg_get("mass_linker.copy_label_field", ""))
-    ).strip()
+    MASS_LINKER_RULES = _normalize_mass_linker_rules(cfg_get("mass_linker.rules", []) or [])
 
     try:
         from aqt import mw  # type: ignore
     except Exception:
         mw = None  # type: ignore
 
-    def _note_type_id_from_ident(col, ident: Any) -> str:
-        if ident is None:
-            return ""
-        s = str(ident).strip()
-        if not s:
-            return ""
-        if s.isdigit():
-            try:
-                mid = int(s)
-            except Exception:
-                return ""
-            return str(mid)
-        try:
-            model = col.models.by_name(s)
-        except Exception:
-            model = None
-        if not model:
-            return s
-        try:
-            return str(int(model.get("id")))
-        except Exception:
-            return s
-
-    def _map_dict_keys(col, raw: dict[str, Any]) -> dict[str, Any]:
-        out: dict[str, Any] = {}
-        for k, v in raw.items():
-            key = _note_type_id_from_ident(col, k)
-            if not key:
-                continue
-            out[key] = v
-        return out
-
     if mw is not None and getattr(mw, "col", None):
         col = mw.col
         if col:
-            MASS_LINKER_RULES = _map_dict_keys(col, MASS_LINKER_RULES)
+            MASS_LINKER_RULES = _normalize_mass_linker_rules(MASS_LINKER_RULES, col=col)
 
 
 reload_config()
@@ -392,13 +448,13 @@ def _sync_checkable_combo_text(combo: QComboBox, model: QStandardItemModel) -> N
         combo.lineEdit().setText(text)
 
 
-def _make_checkable_combo(items: list[Any], selected: list[str]) -> tuple[QComboBox, QStandardItemModel]:
-    combo = QComboBox()
-    combo.setEditable(True)
-    if combo.lineEdit() is not None:
-        combo.lineEdit().setReadOnly(True)
-    model = QStandardItemModel(combo)
+def _fill_checkable_model(
+    model: QStandardItemModel,
+    items: list[Any],
+    selected: list[str],
+) -> None:
     selected_set = {str(x) for x in (selected or [])}
+    model.clear()
     for it in items:
         if isinstance(it, (list, tuple)) and len(it) == 2:
             value = str(it[0])
@@ -414,6 +470,15 @@ def _make_checkable_combo(items: list[Any], selected: list[str]) -> tuple[QCombo
             Qt.ItemDataRole.CheckStateRole,
         )
         model.appendRow(item)
+
+
+def _make_checkable_combo(items: list[Any], selected: list[str]) -> tuple[QComboBox, QStandardItemModel]:
+    combo = QComboBox()
+    combo.setEditable(True)
+    if combo.lineEdit() is not None:
+        combo.lineEdit().setReadOnly(True)
+    model = QStandardItemModel(combo)
+    _fill_checkable_model(model, items, selected)
     combo.setModel(model)
 
     def _toggle(idx) -> None:
@@ -445,21 +510,43 @@ def _tip_label(text: str, tip: str) -> QLabel:
     label.setWhatsThis(tip)
     return label
 
-def _note_type_rules() -> dict[str, dict[str, Any]]:
-    raw = config.MASS_LINKER_RULES
-    if not isinstance(raw, dict):
-        return {}
-    out: dict[str, dict[str, Any]] = {}
-    for nt_id, cfg in raw.items():
-        if not isinstance(cfg, dict):
+
+def _split_csv(value: str) -> list[str]:
+    parts = [p.strip() for p in str(value or "").split(",")]
+    out: list[str] = []
+    for p in parts:
+        if not p:
             continue
-        if "templates" in cfg:
-            templates = [
-                _template_ord_from_value(str(nt_id), x) for x in (cfg.get("templates") or [])
-            ]
-            cfg = dict(cfg)
-            cfg["templates"] = [t for t in templates if t]
-        out[str(nt_id)] = cfg
+        if p not in out:
+            out.append(p)
+    return out
+
+def _rule_tabs() -> list[dict[str, Any]]:
+    raw = config.MASS_LINKER_RULES
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for i, rule in enumerate(raw):
+        if not isinstance(rule, dict):
+            continue
+        item = dict(rule)
+        item["id"] = str(item.get("id") or f"rule_{i + 1}")
+        item["name"] = str(item.get("name") or f"Rule {i + 1}")
+        item["enabled"] = bool(item.get("enabled", True))
+        item["mode"] = str(item.get("mode", "basic")).strip().lower() or "basic"
+        item["side"] = str(item.get("side", "both")).strip().lower() or "both"
+        item["group_name"] = str(item.get("group_name", "")).strip()
+        item["target_mode"] = str(item.get("target_mode", "note")).strip().lower() or "note"
+        item["selector_separator"] = str(item.get("selector_separator", "::"))
+        item["target_note_types"] = [str(x).strip() for x in (item.get("target_note_types") or []) if str(x).strip()]
+        item["target_templates"] = [str(x).strip() for x in (item.get("target_templates") or []) if str(x).strip()]
+        item["source_templates"] = [str(x).strip() for x in (item.get("source_templates") or []) if str(x).strip()]
+        item["target_conditions"] = [x for x in (item.get("target_conditions") or []) if isinstance(x, dict)]
+        item["source_conditions"] = [x for x in (item.get("source_conditions") or []) if isinstance(x, dict)]
+        item["source_template_mappings"] = [
+            x for x in (item.get("source_template_mappings") or []) if isinstance(x, dict)
+        ]
+        out.append(item)
     return out
 
 
@@ -477,10 +564,192 @@ def _template_ord(card: Card) -> str:
         return ""
 
 
+def _card_note_type_id(card: Card) -> str:
+    try:
+        return str(int(card.note().mid))
+    except Exception:
+        return ""
+
+
+def _note_tags(note: Any) -> set[str]:
+    tags_raw = getattr(note, "tags", None)
+    if not tags_raw:
+        return set()
+    return {str(t).strip() for t in tags_raw if str(t).strip()}
+
+
+def _field_text(note: Any, field_name: str) -> str:
+    f = str(field_name or "").strip()
+    if not f:
+        return ""
+    try:
+        if f in note:
+            return str(note[f] or "")
+    except Exception:
+        pass
+    return ""
+
+
+def _match_text(actual: str, op: str, expected: str) -> bool:
+    a = str(actual or "")
+    b = str(expected or "")
+    op_l = str(op or "contains").strip().lower()
+    if op_l in ("any",):
+        return True
+    if op_l in ("exists",):
+        return bool(a.strip())
+    if op_l in ("equals", "eq"):
+        return a == b
+    if op_l in ("starts_with", "startswith"):
+        return a.startswith(b)
+    if op_l in ("ends_with", "endswith"):
+        return a.endswith(b)
+    if op_l in ("regex", "re"):
+        try:
+            import re
+
+            return bool(re.search(b, a))
+        except Exception:
+            return False
+    return b in a
+
+
+def _eval_single_condition(note: Any, cond: dict[str, Any]) -> bool:
+    kind = str(cond.get("kind", "field")).strip().lower()
+    op = str(cond.get("op", "contains")).strip().lower()
+    value = str(cond.get("value", ""))
+    if op == "any":
+        return True
+    if kind == "tag":
+        tags = _note_tags(note)
+        if op in ("has", "equals", "eq"):
+            return value in tags
+        joined = " ".join(sorted(tags))
+        return _match_text(joined, op, value)
+    field = str(cond.get("field", "")).strip()
+    actual = _field_text(note, field)
+    return _match_text(actual, op, value)
+
+
+def _eval_conditions(note: Any, conditions: list[dict[str, Any]]) -> bool:
+    if not conditions:
+        return True
+    result: bool | None = None
+    for cond in conditions:
+        if not isinstance(cond, dict):
+            continue
+        connector = str(cond.get("connector", "AND")).strip().upper()
+        negate = bool(cond.get("negate", False))
+        cond_result = _eval_single_condition(note, cond)
+        if negate:
+            cond_result = not cond_result
+        if result is None:
+            result = cond_result
+            continue
+        if connector == "OR":
+            result = bool(result or cond_result)
+        elif connector == "ANY":
+            result = True
+        else:
+            result = bool(result and cond_result)
+    return bool(result) if result is not None else True
+
+
+def _find_notes_by_tag(tag: str) -> list[int]:
+    if mw is None or not getattr(mw, "col", None):
+        return []
+    q = str(tag or "").strip()
+    if not q:
+        return []
+    try:
+        return list(mw.col.find_notes(f"tag:{q}"))
+    except Exception as exc:
+        log_warn("mass_linker: tag search failed", q, repr(exc))
+        return []
+
+
+def _find_notes_by_mid(mid_str: str) -> list[int]:
+    if mw is None or not getattr(mw, "col", None):
+        return []
+    try:
+        mid = int(str(mid_str).strip())
+    except Exception:
+        return []
+    try:
+        return list(mw.col.db.list("select id from notes where mid = ?", mid))
+    except Exception:
+        return []
+
+
+def _refs_from_nids(nids: list[int], label_field: str) -> list[LinkRef]:
+    out: list[LinkRef] = []
+    for nid in nids:
+        try:
+            note = mw.col.get_note(int(nid))
+        except Exception:
+            continue
+        label = _label_for_note(note, label_field)
+        out.append(LinkRef(label=label, kind="nid", target_id=int(nid)))
+    return out
+
+
+def _refs_from_notes_with_card_targets(
+    source_nids: list[int],
+    *,
+    target_note: Any,
+    target_card: Card,
+    rule: dict[str, Any],
+    label_field: str,
+) -> list[LinkRef]:
+    refs: list[LinkRef] = []
+    target_mode = str(rule.get("target_mode", "note")).strip().lower() or "note"
+    if target_mode != "card":
+        return _refs_from_nids(source_nids, label_field)
+
+    fallback_templates = {str(x).strip() for x in (rule.get("source_templates") or []) if str(x).strip()}
+    mapping_field = str(rule.get("mapping_field", "")).strip()
+    mapping_value = _field_text(target_note, mapping_field) if mapping_field else ""
+    mappings = [m for m in (rule.get("source_template_mappings") or []) if isinstance(m, dict)]
+
+    selected_templates: set[str] = set()
+    for mp in mappings:
+        sel = str(mp.get("selector", "")).strip()
+        if not sel:
+            continue
+        if mapping_value == sel:
+            vals = [str(x).strip() for x in (mp.get("source_templates") or []) if str(x).strip()]
+            selected_templates.update(vals)
+    if not selected_templates:
+        selected_templates = set(fallback_templates)
+    if not selected_templates:
+        return []
+
+    for nid in source_nids:
+        try:
+            src_note = mw.col.get_note(int(nid))
+            src_cards = src_note.cards()
+        except Exception:
+            continue
+        label = _label_for_note(src_note, label_field)
+        for c in src_cards:
+            ord_val = _template_ord(c)
+            if ord_val not in selected_templates:
+                continue
+            refs.append(LinkRef(label=label, kind="cid", target_id=int(c.id)))
+    return refs
+
+
 def _label_for_note(note, label_field: str) -> str:
     if label_field and label_field in note:
         return str(note[label_field] or "")
-    # fallback: first field
+    # default fallback: sort field of the note type
+    try:
+        sort_field = _get_sort_field_for_note_type(str(getattr(note, "mid", "")))
+        if sort_field and sort_field in note:
+            return str(note[sort_field] or "")
+    except Exception:
+        pass
+    # final fallback: first field
     try:
         return str(note.fields[0] or "")
     except Exception:
@@ -513,14 +782,13 @@ def _copy_note_link_for_browser(browser) -> None:
         tooltip("Note not found", period=2500)
         return
 
-    label_field = str(config.MASS_LINKER_LABEL_FIELD or "").strip()
-    label = _label_for_note(note, label_field).strip()
+    label = _label_for_note(note, "").strip()
     label = label.replace("[", "\\[").replace("]", "\\]")
     link = f"[{label}|nid{nid}]"
     try:
         QApplication.clipboard().setText(link)
         tooltip("Copied note link", period=2500)
-        _dbg("browser copy", nid, "label_field", label_field)
+        _dbg("browser copy", nid, "label_field", "sort_field(default)")
     except Exception:
         log_warn("mass_linker: failed to copy note link", nid)
         tooltip("Failed to copy note link", period=2500)
@@ -536,25 +804,96 @@ def _browser_context_menu(browser, menu, *_args) -> None:
 
 
 def _link_refs_for_tag(tag: str, label_field: str) -> list[LinkRef]:
-    if mw is None or not getattr(mw, "col", None):
-        return []
+    nids = _find_notes_by_tag(tag)
+    _dbg("tag search", tag, "matches", len(nids))
+    return _refs_from_nids([int(x) for x in nids], label_field)
+
+
+def _rule_matches_target(rule: dict[str, Any], ctx: ProviderContext) -> bool:
+    mode = str(rule.get("mode", "basic")).strip().lower() or "basic"
+    side = str(rule.get("side", "both")).lower()
+    if ctx.kind == "reviewQuestion" and side not in ("front", "both"):
+        return False
+    if ctx.kind != "reviewQuestion" and side not in ("back", "both"):
+        return False
+
+    target_nt = {str(x).strip() for x in (rule.get("target_note_types") or []) if str(x).strip()}
+    if target_nt and str(ctx.note.mid) not in target_nt:
+        return False
+
+    wanted_templates = {str(x).strip() for x in (rule.get("target_templates") or []) if str(x).strip()}
+    tmpl_ord = _template_ord(ctx.card)
+    if wanted_templates and tmpl_ord not in wanted_templates:
+        return False
+
+    if mode != "basic":
+        target_conditions = [x for x in (rule.get("target_conditions") or []) if isinstance(x, dict)]
+        if target_conditions and not _eval_conditions(ctx.note, target_conditions):
+            return False
+    return True
+
+
+def _source_note_passes(rule: dict[str, Any], note: Any) -> bool:
+    mode = str(rule.get("mode", "basic")).strip().lower() or "basic"
+    if mode == "basic":
+        return True
+    source_conditions = [x for x in (rule.get("source_conditions") or []) if isinstance(x, dict)]
+    if not source_conditions:
+        return True
+    return _eval_conditions(note, source_conditions)
+
+
+def _refs_for_rule(rule: dict[str, Any], ctx: ProviderContext) -> list[LinkRef]:
+    mode = str(rule.get("mode", "basic")).strip().lower() or "basic"
+    label_field = str(rule.get("source_label_field", "")).strip()
+
+    if mode == "advanced_tag":
+        base = str(rule.get("source_tag_base", "")).strip()
+        if not base:
+            return []
+        sep = str(rule.get("selector_separator", "::"))
+        selector_field = str(rule.get("selector_field", "")).strip()
+        selector_value = _field_text(ctx.note, selector_field).strip() if selector_field else ""
+        search_tag = f"{base}{sep}{selector_value}" if selector_value else base
+        nids = _find_notes_by_tag(search_tag)
+        refs: list[LinkRef] = []
+        for nid in nids:
+            try:
+                src_note = mw.col.get_note(int(nid))
+            except Exception:
+                continue
+            if not _source_note_passes(rule, src_note):
+                continue
+            label = _label_for_note(src_note, label_field)
+            refs.append(LinkRef(label=label, kind="nid", target_id=int(nid)))
+        return refs
+
+    if mode == "advanced_notetype":
+        src_nt = str(rule.get("source_note_type", "")).strip()
+        if not src_nt:
+            return []
+        source_nids = _find_notes_by_mid(src_nt)
+        filtered_nids: list[int] = []
+        for nid in source_nids:
+            try:
+                src_note = mw.col.get_note(int(nid))
+            except Exception:
+                continue
+            if _source_note_passes(rule, src_note):
+                filtered_nids.append(int(nid))
+        return _refs_from_notes_with_card_targets(
+            filtered_nids,
+            target_note=ctx.note,
+            target_card=ctx.card,
+            rule=rule,
+            label_field=label_field,
+        )
+
+    # basic
+    tag = str(rule.get("source_tag", "")).strip()
     if not tag:
         return []
-    try:
-        nids = mw.col.find_notes(f"tag:{tag}")
-    except Exception as exc:
-        log_warn("mass_linker: tag search failed", tag, repr(exc))
-        return []
-    _dbg("tag search", tag, "matches", len(nids))
-    links: list[LinkRef] = []
-    for nid in nids:
-        try:
-            note = mw.col.get_note(nid)
-        except Exception:
-            continue
-        label = _label_for_note(note, label_field)
-        links.append(LinkRef(label=label, kind="nid", target_id=int(nid)))
-    return links
+    return _link_refs_for_tag(tag, label_field)
 
 
 def _mass_link_provider(ctx: ProviderContext) -> list[LinkPayload]:
@@ -567,54 +906,49 @@ def _mass_link_provider(ctx: ProviderContext) -> list[LinkPayload]:
     if mw is None or not getattr(mw, "col", None):
         return []
 
-    note = ctx.note
-    card = ctx.card
-    nt_id = str(note.mid)
-    rules = _note_type_rules()
-    rule = rules.get(nt_id)
-    if not rule:
-        return []
-
-    side = str(rule.get("side", "both")).lower()
-    if ctx.kind == "reviewQuestion" and side not in ("front", "both"):
-        return []
-    if ctx.kind != "reviewQuestion" and side not in ("back", "both"):
-        return []
-
-    wanted_templates = {str(x) for x in (rule.get("templates") or []) if str(x).strip()}
-    tmpl_ord = _template_ord(card)
-    if wanted_templates and tmpl_ord not in wanted_templates:
-        return []
-
-    tag = str(rule.get("tag", "")).strip()
-    if not tag:
-        return []
-
-    label_field = str(rule.get("label_field", "")).strip()
-    refs = _link_refs_for_tag(tag, label_field)
-    if not refs:
+    rules = _rule_tabs()
+    if not rules:
         return []
 
     seen_nids = set(ctx.existing_nids or set())
-    out_refs: list[LinkRef] = []
-    for ref in refs:
-        if ref.kind == "nid" and int(ref.target_id) in seen_nids:
+    seen_cids = set(ctx.existing_cids or set())
+    payloads: list[LinkPayload] = []
+    for idx, rule in enumerate(rules):
+        if not bool(rule.get("enabled", True)):
             continue
-        out_refs.append(ref)
-        if ref.kind == "nid":
-            seen_nids.add(int(ref.target_id))
+        if not _rule_matches_target(rule, ctx):
+            continue
 
-    if not out_refs:
-        return []
+        refs = _refs_for_rule(rule, ctx)
+        if not refs:
+            continue
 
-    return [
-        LinkPayload(
-            mode="flat",
-            wrapper=WrapperSpec(classes=["ajpc-auto-links"]),
-            links=out_refs,
-            order=100,
+        unique_refs: list[LinkRef] = []
+        for ref in refs:
+            target = int(ref.target_id)
+            if str(ref.kind).lower() == "cid":
+                if target in seen_cids:
+                    continue
+                seen_cids.add(target)
+            else:
+                if target in seen_nids:
+                    continue
+                seen_nids.add(target)
+            unique_refs.append(ref)
+        if not unique_refs:
+            continue
+
+        group_name = str(rule.get("group_name", "")).strip() or str(rule.get("name", "")).strip() or "Mass Linker"
+        payloads.append(
+            LinkPayload(
+                mode="grouped",
+                wrapper=WrapperSpec(classes=["ajpc-auto-links", "ajpc-auto-links-mass-linker"]),
+                groups=[LinkGroup(key=group_name, links=unique_refs)],
+                order=100 + idx,
+            )
         )
-    ]
+
+    return payloads
 
 
 def _install_mass_linker_ui_hooks() -> None:
@@ -649,28 +983,6 @@ def _build_settings(ctx):
         mass_linker_enabled_cb,
     )
 
-    copy_label_field_combo = QComboBox()
-    all_fields = _get_all_field_names()
-    cur_copy_label = str(config.MASS_LINKER_LABEL_FIELD or "").strip()
-    if cur_copy_label and cur_copy_label not in all_fields:
-        all_fields.append(cur_copy_label)
-    _populate_field_combo(copy_label_field_combo, all_fields, cur_copy_label)
-    mass_linker_form.addRow(
-        _tip_label("Label field", "Default source field for generated link labels."),
-        copy_label_field_combo,
-    )
-
-    mass_linker_note_type_items = _merge_note_type_items(
-        _get_note_type_items(), list((config.MASS_LINKER_RULES or {}).keys())
-    )
-    mass_linker_note_type_combo, mass_linker_note_type_model = _make_checkable_combo(
-        mass_linker_note_type_items, list((config.MASS_LINKER_RULES or {}).keys())
-    )
-    mass_linker_form.addRow(
-        _tip_label("Note types", "Only selected note types are processed by Mass Linker."),
-        mass_linker_note_type_combo,
-    )
-
     general_layout.addStretch(1)
 
     mass_linker_tabs.addTab(general_tab, "General")
@@ -679,181 +991,723 @@ def _build_settings(ctx):
     rules_layout = QVBoxLayout()
     rules_tab.setLayout(rules_layout)
 
-    mass_linker_rules_empty_label = QLabel("Select note types in General tab.")
-    rules_layout.addWidget(mass_linker_rules_empty_label)
+    rules_toolbar = QHBoxLayout()
+    add_rule_btn = QPushButton("+ Rule")
+    remove_rule_btn = QPushButton("- Rule")
+    rules_toolbar.addWidget(add_rule_btn)
+    rules_toolbar.addWidget(remove_rule_btn)
+    rules_toolbar.addStretch(1)
+    rules_layout.addLayout(rules_toolbar)
 
     mass_linker_rule_tabs = QTabWidget()
     rules_layout.addWidget(mass_linker_rule_tabs)
-
     rules_layout.addStretch(1)
-
     mass_linker_tabs.addTab(rules_tab, "Rules")
 
-    mass_linker_state: dict[str, dict[str, str | list[str]]] = {}
-    for nt_id, nt_cfg in (config.MASS_LINKER_RULES or {}).items():
-        if isinstance(nt_cfg, dict):
-            templates = [
-                _template_ord_from_value(str(nt_id), x) or str(x).strip()
-                for x in (nt_cfg.get("templates") or [])
-            ]
-            templates = [t for t in templates if t]
-            mass_linker_state[str(nt_id)] = {
-                "templates": templates,
-                "side": str(nt_cfg.get("side", "both")).lower().strip() or "both",
-                "tag": str(nt_cfg.get("tag", "")).strip(),
-                "label_field": str(nt_cfg.get("label_field", "")).strip(),
+    note_type_items_base = _get_note_type_items()
+    all_field_names = _get_all_field_names()
+    rule_widgets: dict[QWidget, dict[str, Any]] = {}
+
+    def _rule_title(name: str, idx: int) -> str:
+        s = str(name or "").strip()
+        return s or f"Rule {idx + 1}"
+
+    def _make_condition_editor(
+        *,
+        title: str,
+        initial: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        wrapper = QWidget()
+        wrap_layout = QVBoxLayout()
+        wrap_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper.setLayout(wrap_layout)
+
+        rows_host = QWidget()
+        rows_layout = QVBoxLayout()
+        rows_layout.setContentsMargins(0, 0, 0, 0)
+        rows_host.setLayout(rows_layout)
+        wrap_layout.addWidget(rows_host)
+
+        add_btn = QPushButton("Add condition")
+        wrap_layout.addWidget(add_btn)
+
+        rows: list[dict[str, Any]] = []
+
+        def _refresh_connector_visibility() -> None:
+            for idx, st in enumerate(rows):
+                combo = st["connector"]
+                is_first = idx == 0
+                combo.setVisible(not is_first)
+                combo.setEnabled(not is_first)
+
+        def _add_row(data: dict[str, Any] | None = None) -> None:
+            row = QWidget()
+            row_l = QHBoxLayout()
+            row_l.setContentsMargins(0, 0, 0, 0)
+            row.setLayout(row_l)
+
+            connector_combo = QComboBox()
+            connector_combo.addItem("AND", "AND")
+            connector_combo.addItem("OR", "OR")
+            connector_combo.addItem("ANY", "ANY")
+
+            negate_cb = QCheckBox("NOT")
+            kind_combo = QComboBox()
+            kind_combo.addItem("Field", "field")
+            kind_combo.addItem("Tag", "tag")
+
+            field_combo = QComboBox()
+            _populate_field_combo(field_combo, all_field_names, "")
+            field_combo.setMinimumWidth(130)
+
+            op_combo = QComboBox()
+            for lbl, val in (
+                ("contains", "contains"),
+                ("equals", "equals"),
+                ("starts_with", "starts_with"),
+                ("ends_with", "ends_with"),
+                ("regex", "regex"),
+                ("exists", "exists"),
+                ("has(tag)", "has"),
+                ("any", "any"),
+            ):
+                op_combo.addItem(lbl, val)
+
+            value_edit = QLineEdit()
+            value_edit.setPlaceholderText("value")
+            value_edit.setMinimumWidth(140)
+
+            remove_btn = QPushButton("x")
+            remove_btn.setMaximumWidth(28)
+
+            row_l.addWidget(connector_combo)
+            row_l.addWidget(negate_cb)
+            row_l.addWidget(kind_combo)
+            row_l.addWidget(field_combo)
+            row_l.addWidget(op_combo)
+            row_l.addWidget(value_edit)
+            row_l.addWidget(remove_btn)
+
+            state = {
+                "row": row,
+                "connector": connector_combo,
+                "negate": negate_cb,
+                "kind": kind_combo,
+                "field": field_combo,
+                "op": op_combo,
+                "value": value_edit,
             }
+            rows.append(state)
+            rows_layout.addWidget(row)
 
-    mass_linker_note_type_widgets: dict[str, dict[str, object]] = {}
+            def _update_kind() -> None:
+                is_tag = str(kind_combo.currentData() or "field") == "tag"
+                field_combo.setEnabled(not is_tag)
 
-    def _capture_mass_linker_state() -> None:
-        for nt_id, widgets in mass_linker_note_type_widgets.items():
-            mass_linker_state[nt_id] = {
-                "templates": _checked_items(widgets["templates_model"]),
-                "side": _combo_value(widgets["side_combo"]),
-                "tag": widgets["tag_edit"].text().strip(),
-                "label_field": _combo_value(widgets["label_field_combo"]),
+            kind_combo.currentIndexChanged.connect(lambda _i: _update_kind())
+            _update_kind()
+
+            def _remove() -> None:
+                if state in rows:
+                    rows.remove(state)
+                rows_layout.removeWidget(row)
+                row.deleteLater()
+                _refresh_connector_visibility()
+
+            remove_btn.clicked.connect(_remove)
+
+            cfg = data or {}
+            c_idx = connector_combo.findData(str(cfg.get("connector", "AND")).upper())
+            if c_idx >= 0:
+                connector_combo.setCurrentIndex(c_idx)
+            negate_cb.setChecked(bool(cfg.get("negate", False)))
+            k_idx = kind_combo.findData(str(cfg.get("kind", "field")).lower())
+            if k_idx >= 0:
+                kind_combo.setCurrentIndex(k_idx)
+            _populate_field_combo(field_combo, all_field_names, str(cfg.get("field", "")).strip())
+            o_idx = op_combo.findData(str(cfg.get("op", "contains")).lower())
+            if o_idx >= 0:
+                op_combo.setCurrentIndex(o_idx)
+            value_edit.setText(str(cfg.get("value", "")))
+            _refresh_connector_visibility()
+
+        add_btn.clicked.connect(lambda: _add_row(None))
+        for cond in (initial or []):
+            if isinstance(cond, dict):
+                _add_row(cond)
+
+        def _collect() -> list[dict[str, Any]]:
+            out: list[dict[str, Any]] = []
+            for idx, r in enumerate(rows):
+                out.append(
+                    {
+                        "connector": "AND" if idx == 0 else str(r["connector"].currentData() or "AND"),
+                        "negate": bool(r["negate"].isChecked()),
+                        "kind": str(r["kind"].currentData() or "field"),
+                        "field": str(_combo_value(r["field"])).strip(),
+                        "op": str(r["op"].currentData() or "contains"),
+                        "value": str(r["value"].text() or ""),
+                    }
+                )
+            return out
+
+        return {"collect": _collect, "widget": wrapper}
+
+    def _make_mapping_editor(
+        *,
+        initial: list[dict[str, Any]] | None = None,
+        template_items_provider=None,
+    ) -> dict[str, Any]:
+        wrapper = QWidget()
+        wrap_layout = QVBoxLayout()
+        wrap_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper.setLayout(wrap_layout)
+
+        rows_layout = QVBoxLayout()
+        rows_layout.setContentsMargins(0, 0, 0, 0)
+        wrap_layout.addLayout(rows_layout)
+
+        add_btn = QPushButton("Add mapping")
+        wrap_layout.addWidget(add_btn)
+
+        rows: list[dict[str, Any]] = []
+
+        def _get_items(extra_values: list[str] | None = None) -> list[tuple[str, str]]:
+            if callable(template_items_provider):
+                try:
+                    items = template_items_provider() or []
+                except Exception:
+                    items = []
+            else:
+                items = []
+            return _merge_template_items(list(items), list(extra_values or []))
+
+        def _add_row(data: dict[str, Any] | None = None) -> None:
+            row = QWidget()
+            row_l = QHBoxLayout()
+            row_l.setContentsMargins(0, 0, 0, 0)
+            row.setLayout(row_l)
+
+            selector_edit = QLineEdit()
+            selector_edit.setPlaceholderText("selector value")
+            source_template_combo = QComboBox()
+            source_template_combo.setEditable(False)
+            source_template_combo.addItem("", "")
+            cfg = data or {}
+            preselected_templates = [str(x).strip() for x in (cfg.get("source_templates") or []) if str(x).strip()]
+            preselected_template = preselected_templates[0] if preselected_templates else ""
+            for val, label in _get_items(extra_values=[preselected_template] if preselected_template else []):
+                source_template_combo.addItem(label, val)
+            if preselected_template:
+                idx = source_template_combo.findData(preselected_template)
+                if idx >= 0:
+                    source_template_combo.setCurrentIndex(idx)
+            remove_btn = QPushButton("x")
+            remove_btn.setMaximumWidth(28)
+
+            row_l.addWidget(selector_edit)
+            row_l.addWidget(source_template_combo)
+            row_l.addWidget(remove_btn)
+            rows_layout.addWidget(row)
+
+            state = {
+                "row": row,
+                "selector": selector_edit,
+                "source_template_combo": source_template_combo,
             }
+            rows.append(state)
 
-    def _clear_mass_linker_layout() -> None:
-        while mass_linker_rule_tabs.count():
-            w = mass_linker_rule_tabs.widget(0)
-            mass_linker_rule_tabs.removeTab(0)
-            if w is not None:
-                w.deleteLater()
+            def _remove() -> None:
+                if state in rows:
+                    rows.remove(state)
+                rows_layout.removeWidget(row)
+                row.deleteLater()
 
-    def _refresh_mass_linker_rules() -> None:
-        _capture_mass_linker_state()
-        _clear_mass_linker_layout()
-        mass_linker_note_type_widgets.clear()
+            remove_btn.clicked.connect(_remove)
 
-        selected_types = _checked_items(mass_linker_note_type_model)
-        mass_linker_rules_empty_label.setVisible(not bool(selected_types))
-        mass_linker_rule_tabs.setVisible(bool(selected_types))
-        for nt_id in selected_types:
-            cfg = mass_linker_state.get(nt_id)
-            if not cfg:
-                default_label_field = _get_sort_field_for_note_type(nt_id)
-                cfg = {
-                    "templates": [],
-                    "side": "both",
-                    "tag": "",
-                    "label_field": default_label_field,
-                }
-                mass_linker_state[nt_id] = cfg
-            elif not str(cfg.get("label_field", "")).strip():
-                cfg["label_field"] = _get_sort_field_for_note_type(nt_id)
+            selector_edit.setText(str(cfg.get("selector", "")))
 
-            tab = QWidget()
-            tab_layout = QVBoxLayout()
-            tab.setLayout(tab_layout)
+        add_btn.clicked.connect(lambda: _add_row(None))
+        for m in (initial or []):
+            if isinstance(m, dict):
+                _add_row(m)
 
-            form = QFormLayout()
-            tab_layout.addLayout(form)
+        def _collect() -> list[dict[str, Any]]:
+            out: list[dict[str, Any]] = []
+            for r in rows:
+                selector = str(r["selector"].text() or "").strip()
+                selected_template = str(r["source_template_combo"].currentData() or "").strip()
+                if not selector and not selected_template:
+                    continue
+                payload: dict[str, Any] = {"selector": selector}
+                if selected_template:
+                    payload["source_templates"] = [selected_template]
+                out.append(
+                    payload
+                )
+            return out
 
-            field_names = list(_get_fields_for_note_type(nt_id))
-            for extra in (cfg.get("label_field", ""),):
-                if extra and extra not in field_names:
-                    field_names.append(extra)
-            field_names = sorted(set(field_names))
+        def _refresh_templates() -> None:
+            for r in rows:
+                combo = r["source_template_combo"]
+                cur = str(combo.currentData() or "").strip()
+                combo.clear()
+                combo.addItem("", "")
+                for val, label in _get_items(extra_values=[cur] if cur else []):
+                    combo.addItem(label, val)
+                if cur:
+                    idx = combo.findData(cur)
+                    if idx >= 0:
+                        combo.setCurrentIndex(idx)
 
-            label_field_combo = QComboBox()
-            _populate_field_combo(label_field_combo, field_names, cfg.get("label_field", ""))
-            form.addRow(
-                _tip_label("Label field", "Field copied into the link label text."),
-                label_field_combo,
+        return {"collect": _collect, "widget": wrapper, "refresh_templates": _refresh_templates}
+
+    def _default_rule(idx: int) -> dict[str, Any]:
+        return {
+            "id": f"rule_{int(time.time() * 1000)}_{idx}",
+            "name": f"Rule {idx + 1}",
+            "enabled": True,
+            "group_name": "Mass Linker",
+            "mode": "basic",
+            "side": "both",
+            "target_mode": "note",
+            "source_tag": "",
+            "source_tag_base": "",
+            "selector_separator": "::",
+            "selector_field": "",
+            "source_note_type": "",
+            "mapping_field": "",
+            "source_label_field": "",
+            "target_note_types": [],
+            "target_templates": [],
+            "source_templates": [],
+            "target_conditions": [],
+            "source_conditions": [],
+            "source_template_mappings": [],
+        }
+
+    def _make_source_note_type_combo(current_value: str) -> QComboBox:
+        combo = QComboBox()
+        combo.setEditable(False)
+        combo.addItem("", "")
+        items = _merge_note_type_items(note_type_items_base, [current_value] if current_value else [])
+        for val, label in items:
+            combo.addItem(label, val)
+        idx = combo.findData(str(current_value or "").strip())
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        return combo
+
+    def _template_items_for_note_types(
+        note_type_ids: list[str],
+        *,
+        extra_values: list[str] | None = None,
+    ) -> list[tuple[str, str]]:
+        ids = [str(x).strip() for x in (note_type_ids or []) if str(x).strip()]
+        if not ids:
+            # No selected note type scope -> no template options.
+            # This avoids cross-rule/global leakage when creating a fresh rule tab.
+            return _merge_template_items([], list(extra_values or []))
+        by_ord: dict[str, list[str]] = {}
+        for nt_id in ids:
+            nt_name = _note_type_label(nt_id)
+            for ord_val, tmpl_name in _get_template_items(nt_id):
+                key = str(ord_val).strip()
+                if not key:
+                    continue
+                lbl = f"{tmpl_name} [{nt_name}]"
+                by_ord.setdefault(key, []).append(lbl)
+        out: list[tuple[str, str]] = []
+        for ord_val, labels in by_ord.items():
+            uniq = []
+            for lbl in labels:
+                if lbl not in uniq:
+                    uniq.append(lbl)
+            if len(uniq) == 1:
+                out.append((ord_val, f"{ord_val}: {uniq[0]}"))
+            else:
+                shown = " | ".join(uniq[:3])
+                if len(uniq) > 3:
+                    shown += f" (+{len(uniq)-3})"
+                out.append((ord_val, f"{ord_val}: {shown}"))
+        out.sort(key=lambda x: int(x[0]) if str(x[0]).isdigit() else 999999)
+        return _merge_template_items(out, list(extra_values or []))
+
+    def _add_rule_tab(rule: dict[str, Any]) -> None:
+        tab = QWidget()
+        tab_layout = QVBoxLayout()
+        tab.setLayout(tab_layout)
+        form = QFormLayout()
+        tab_layout.addLayout(form)
+
+        rule_id = str(rule.get("id", "")).strip() or f"rule_{int(time.time() * 1000)}"
+        name_edit = QLineEdit(str(rule.get("name", "")))
+        enabled_cb = QCheckBox()
+        enabled_cb.setChecked(bool(rule.get("enabled", True)))
+        group_name_edit = QLineEdit(str(rule.get("group_name", "Mass Linker")))
+
+        mode_combo = QComboBox()
+        mode_combo.addItem("Basic", "basic")
+        mode_combo.addItem("Advanced: Tag source", "advanced_tag")
+        mode_combo.addItem("Advanced: NoteType source", "advanced_notetype")
+
+        side_combo = QComboBox()
+        side_combo.addItem("Front", "front")
+        side_combo.addItem("Back", "back")
+        side_combo.addItem("Both", "both")
+
+        target_mode_combo = QComboBox()
+        target_mode_combo.addItem("Note (nid)", "note")
+        target_mode_combo.addItem("Card (cid)", "card")
+
+        source_label_field_combo = QComboBox()
+        _populate_field_combo(
+            source_label_field_combo, all_field_names, str(rule.get("source_label_field", "")).strip()
+        )
+
+        target_note_type_items = _merge_note_type_items(
+            note_type_items_base, list(rule.get("target_note_types") or [])
+        )
+        target_note_types_combo, target_note_types_model = _make_checkable_combo(
+            target_note_type_items, list(rule.get("target_note_types") or [])
+        )
+        initial_target_templates = [str(x).strip() for x in (rule.get("target_templates") or []) if str(x).strip()]
+        target_template_items = _template_items_for_note_types(
+            list(rule.get("target_note_types") or []),
+            extra_values=initial_target_templates,
+        )
+        target_templates_combo, target_templates_model = _make_checkable_combo(
+            target_template_items,
+            initial_target_templates,
+        )
+
+        source_tag_edit = QLineEdit(str(rule.get("source_tag", "")))
+
+        source_tag_base_edit = QLineEdit(str(rule.get("source_tag_base", "")))
+        separator_edit = QLineEdit(str(rule.get("selector_separator", "::")))
+        selector_field_combo = QComboBox()
+        _populate_field_combo(selector_field_combo, all_field_names, str(rule.get("selector_field", "")))
+
+        source_note_type_combo = _make_source_note_type_combo(str(rule.get("source_note_type", "")))
+        mapping_field_combo = QComboBox()
+        _populate_field_combo(mapping_field_combo, all_field_names, str(rule.get("mapping_field", "")))
+        initial_source_templates = [str(x).strip() for x in (rule.get("source_templates") or []) if str(x).strip()]
+        source_template_items = _template_items_for_note_types(
+            [str(_combo_value(source_note_type_combo) or "").strip()],
+            extra_values=initial_source_templates,
+        )
+        source_templates_combo, source_templates_model = _make_checkable_combo(
+            source_template_items,
+            initial_source_templates,
+        )
+
+        rule_row_widget = QWidget()
+        rule_row_layout = QHBoxLayout()
+        rule_row_layout.setContentsMargins(0, 0, 0, 0)
+        rule_row_widget.setLayout(rule_row_layout)
+        name_edit.setPlaceholderText("Rule name")
+        group_name_edit.setPlaceholderText("Group name")
+        enabled_cb.setText("Enabled")
+        rule_row_layout.addWidget(name_edit, 2)
+        rule_row_layout.addWidget(group_name_edit, 2)
+        rule_row_layout.addWidget(enabled_cb, 0)
+        form.addRow(
+            _tip_label(
+                "Rule",
+                "Rule Name | Group Name | Enabled",
+            ),
+            rule_row_widget,
+        )
+        mode_label = _tip_label("Mode", "Basic or advanced source mode.")
+        form.addRow(mode_label, mode_combo)
+        form.addRow(QLabel("<b>Target settings</b>"))
+        target_side_label = _tip_label("Target side", "Front/back/both restriction on the target card side.")
+        form.addRow(target_side_label, side_combo)
+        target_note_types_label = _tip_label(
+            "Target note types",
+            "Optional scope for target notes. If empty, only target conditions are used.",
+        )
+        form.addRow(
+            target_note_types_label,
+            target_note_types_combo,
+        )
+        target_templates_label = _tip_label(
+            "Target card templates",
+            "Optional target card template filter.",
+        )
+        form.addRow(
+            target_templates_label,
+            target_templates_combo,
+        )
+        target_cond_editor = _make_condition_editor(
+            title="Target conditions (AND/OR/ANY + NOT)",
+            initial=[x for x in (rule.get("target_conditions") or []) if isinstance(x, dict)],
+        )
+        target_cond_scroll = QScrollArea()
+        target_cond_scroll.setWidgetResizable(True)
+        target_cond_scroll.setWidget(target_cond_editor["widget"])
+        target_cond_scroll.setMaximumHeight(180)
+        form.addRow(
+            _tip_label("Target conditions", "Conditions evaluated against the current target note."),
+            target_cond_scroll,
+        )
+        form.addRow(QLabel("<b>Source settings</b>"))
+        source_label_field_label = _tip_label(
+            "Source label field",
+            "Field copied from source note into link label text.",
+        )
+        form.addRow(source_label_field_label, source_label_field_combo)
+        basic_source_tag_label = _tip_label(
+            "Basic source tag", "Basic mode: notes with this tag are linked as nid."
+        )
+        form.addRow(basic_source_tag_label, source_tag_edit)
+        tag_base_label = _tip_label("Tag base", "Advanced tag mode: base tag before selector suffix.")
+        form.addRow(
+            tag_base_label,
+            source_tag_base_edit,
+        )
+        selector_separator_label = _tip_label(
+            "Selector separator", "Free separator between <tag base> and <selector>."
+        )
+        form.addRow(
+            selector_separator_label,
+            separator_edit,
+        )
+        selector_field_label = _tip_label(
+            "Selector field", "Target note field used as selector suffix in advanced tag mode."
+        )
+        form.addRow(
+            selector_field_label,
+            selector_field_combo,
+        )
+        source_note_type_label = _tip_label(
+            "Source note type", "Advanced NoteType mode source note type."
+        )
+        form.addRow(source_note_type_label, source_note_type_combo)
+        target_mode_label = _tip_label(
+            "Link target kind", "Advanced NoteType output kind: note (`nid`) or card (`cid`)."
+        )
+        form.addRow(target_mode_label, target_mode_combo)
+        mapping_field_label = _tip_label(
+            "Mapping field", "Target note field whose value is matched against mapping selector."
+        )
+        form.addRow(
+            mapping_field_label,
+            mapping_field_combo,
+        )
+        source_cond_editor = _make_condition_editor(
+            title="Source conditions (AND/OR/ANY + NOT)",
+            initial=[x for x in (rule.get("source_conditions") or []) if isinstance(x, dict)],
+        )
+        source_cond_scroll = QScrollArea()
+        source_cond_scroll.setWidgetResizable(True)
+        source_cond_scroll.setWidget(source_cond_editor["widget"])
+        source_cond_scroll.setMaximumHeight(180)
+        form.addRow(
+            _tip_label("Source conditions", "Conditions evaluated against candidate source notes."),
+            source_cond_scroll,
+        )
+        mapping_editor = _make_mapping_editor(
+            initial=[x for x in (rule.get("source_template_mappings") or []) if isinstance(x, dict)],
+            template_items_provider=lambda: _template_items_for_note_types(
+                [str(_combo_value(source_note_type_combo) or "").strip()]
+            ),
+        )
+        mapping_scroll = QScrollArea()
+        mapping_scroll.setWidgetResizable(True)
+        mapping_scroll.setWidget(mapping_editor["widget"])
+        mapping_scroll.setMaximumHeight(160)
+        form.addRow(
+            _tip_label(
+                "Card mappings",
+                "Exact mapping: selector value -> source card template.",
+            ),
+            mapping_scroll,
+        )
+        fallback_templates_label = _tip_label(
+            "Fallback source card templates",
+            "Used only when no selector mapping matches. Choose fallback source card templates.",
+        )
+        form.addRow(
+            fallback_templates_label,
+            source_templates_combo,
+        )
+        tab_layout.addStretch(1)
+
+        def _set_form_row_visible(field_widget: QWidget, visible: bool) -> None:
+            label_widget = form.labelForField(field_widget)
+            if label_widget is not None:
+                label_widget.setVisible(visible)
+            field_widget.setVisible(visible)
+
+        def _update_mode_visibility() -> None:
+            mode = str(mode_combo.currentData() or "basic")
+            is_basic = mode == "basic"
+            is_adv_tag = mode == "advanced_tag"
+            is_adv_nt = mode == "advanced_notetype"
+            is_card_target = str(target_mode_combo.currentData() or "note") == "card"
+            _set_form_row_visible(source_tag_edit, is_basic)
+            _set_form_row_visible(source_tag_base_edit, is_adv_tag)
+            _set_form_row_visible(separator_edit, is_adv_tag)
+            _set_form_row_visible(selector_field_combo, is_adv_tag)
+            _set_form_row_visible(source_note_type_combo, is_adv_nt)
+            _set_form_row_visible(target_mode_combo, is_adv_nt)
+            _set_form_row_visible(mapping_field_combo, is_adv_nt and is_card_target)
+            _set_form_row_visible(source_templates_combo, is_adv_nt and is_card_target)
+            _set_form_row_visible(target_cond_scroll, not is_basic)
+            _set_form_row_visible(source_cond_scroll, not is_basic)
+            _set_form_row_visible(mapping_scroll, is_adv_nt and is_card_target)
+
+        def _refresh_target_template_options() -> None:
+            selected_templates = _checked_items(target_templates_model)
+            selected_target_nts = _checked_items(target_note_types_model)
+            items = _template_items_for_note_types(
+                selected_target_nts,
+                extra_values=selected_templates,
             )
+            _fill_checkable_model(target_templates_model, items, selected_templates)
+            _sync_checkable_combo_text(target_templates_combo, target_templates_model)
 
-            template_items = _merge_template_items(
-                _get_template_items(nt_id), list(cfg.get("templates", []) or [])
-            )
-            templates_combo, templates_model = _make_checkable_combo(
-                template_items, list(cfg.get("templates", []) or [])
-            )
-            form.addRow(
-                _tip_label("Templates", "Selected templates (card ords) where this rule applies."),
-                templates_combo,
-            )
+        def _refresh_source_template_options() -> None:
+            selected_templates = _checked_items(source_templates_model)
+            src_nt = str(_combo_value(source_note_type_combo) or "").strip()
+            items = _template_items_for_note_types([src_nt], extra_values=selected_templates)
+            _fill_checkable_model(source_templates_model, items, selected_templates)
+            _sync_checkable_combo_text(source_templates_combo, source_templates_model)
+            mapping_editor["refresh_templates"]()
 
-            side_combo = QComboBox()
-            side_combo.addItem("Front", "front")
-            side_combo.addItem("Back", "back")
-            side_combo.addItem("Both", "both")
-            side_val = str(cfg.get("side", "both")).lower().strip()
-            side_idx = side_combo.findData(side_val)
-            if side_idx < 0:
-                side_idx = side_combo.findData("both")
-            if side_idx < 0:
-                side_idx = 0
+        mode_idx = mode_combo.findData(str(rule.get("mode", "basic")))
+        if mode_idx >= 0:
+            mode_combo.setCurrentIndex(mode_idx)
+        side_idx = side_combo.findData(str(rule.get("side", "both")))
+        if side_idx >= 0:
             side_combo.setCurrentIndex(side_idx)
-            form.addRow(
-                _tip_label("Side", "Card side restriction for link generation (front/back/both)."),
-                side_combo,
-            )
+        tmode_idx = target_mode_combo.findData(str(rule.get("target_mode", "note")))
+        if tmode_idx >= 0:
+            target_mode_combo.setCurrentIndex(tmode_idx)
+        mode_combo.currentIndexChanged.connect(lambda _i: _update_mode_visibility())
+        target_mode_combo.currentIndexChanged.connect(lambda _i: _update_mode_visibility())
+        target_note_types_model.itemChanged.connect(lambda _item: _refresh_target_template_options())
+        source_note_type_combo.currentIndexChanged.connect(lambda _i: _refresh_source_template_options())
+        _refresh_target_template_options()
+        _refresh_source_template_options()
+        _update_mode_visibility()
 
-            tag_edit = QLineEdit()
-            tag_edit.setText(str(cfg.get("tag", "") or ""))
-            form.addRow(
-                _tip_label("Tag", "Notes with this tag become link targets for this rule."),
-                tag_edit,
-            )
-            tab_layout.addStretch(1)
-            mass_linker_rule_tabs.addTab(tab, _note_type_label(nt_id))
-            mass_linker_note_type_widgets[nt_id] = {
-                "label_field_combo": label_field_combo,
-                "templates_model": templates_model,
-                "side_combo": side_combo,
-                "tag_edit": tag_edit,
-            }
+        tab_index = mass_linker_rule_tabs.addTab(tab, _rule_title(name_edit.text(), mass_linker_rule_tabs.count()))
+        mass_linker_rule_tabs.setCurrentIndex(tab_index)
 
-    _refresh_mass_linker_rules()
-    mass_linker_note_type_model.itemChanged.connect(lambda _item: _refresh_mass_linker_rules())
+        def _retitle() -> None:
+            idx = mass_linker_rule_tabs.indexOf(tab)
+            if idx >= 0:
+                mass_linker_rule_tabs.setTabText(idx, _rule_title(name_edit.text(), idx))
+
+        name_edit.textChanged.connect(lambda _t: _retitle())
+
+        rule_widgets[tab] = {
+            "id": rule_id,
+            "name_edit": name_edit,
+            "enabled_cb": enabled_cb,
+            "group_name_edit": group_name_edit,
+            "mode_combo": mode_combo,
+            "side_combo": side_combo,
+            "source_label_field_combo": source_label_field_combo,
+            "target_note_types_model": target_note_types_model,
+            "target_templates_model": target_templates_model,
+            "source_tag_edit": source_tag_edit,
+            "source_tag_base_edit": source_tag_base_edit,
+            "separator_edit": separator_edit,
+            "selector_field_combo": selector_field_combo,
+            "source_note_type_combo": source_note_type_combo,
+            "target_mode_combo": target_mode_combo,
+            "mapping_field_combo": mapping_field_combo,
+            "source_templates_model": source_templates_model,
+            "target_cond_editor": target_cond_editor,
+            "source_cond_editor": source_cond_editor,
+            "mapping_editor": mapping_editor,
+        }
+
+    initial_rules = _rule_tabs()
+    if not initial_rules:
+        _add_rule_tab(_default_rule(0))
+    else:
+        for idx, rule in enumerate(initial_rules):
+            if not isinstance(rule, dict):
+                continue
+            merged = _default_rule(idx)
+            merged.update(rule)
+            _add_rule_tab(merged)
+
+    def _add_new_rule() -> None:
+        _add_rule_tab(_default_rule(mass_linker_rule_tabs.count()))
+
+    def _remove_current_rule() -> None:
+        idx = mass_linker_rule_tabs.currentIndex()
+        if idx < 0:
+            return
+        tab = mass_linker_rule_tabs.widget(idx)
+        mass_linker_rule_tabs.removeTab(idx)
+        if tab is not None:
+            rule_widgets.pop(tab, None)
+            tab.deleteLater()
+        if mass_linker_rule_tabs.count() == 0:
+            _add_new_rule()
+
+    add_rule_btn.clicked.connect(_add_new_rule)
+    remove_rule_btn.clicked.connect(_remove_current_rule)
 
     ctx.add_tab(mass_linker_tab, "Mass Linker")
 
     def _save(cfg: dict, errors: list[str]) -> None:
-        _capture_mass_linker_state()
-        mass_linker_note_types = _checked_items(mass_linker_note_type_model)
-        mass_linker_rules_cfg: dict[str, object] = {}
-        for nt_id in mass_linker_note_types:
-            cfg_state = mass_linker_state.get(nt_id, {})
-            templates = [
-                str(x).strip() for x in (cfg_state.get("templates") or []) if str(x).strip()
-            ]
-            templates = [t for t in templates if t.isdigit()]
-            side = str(cfg_state.get("side", "both")).lower().strip() or "both"
-            tag = str(cfg_state.get("tag", "")).strip()
-            label_field = str(cfg_state.get("label_field", "")).strip()
+        rules_out: list[dict[str, Any]] = []
+        for i in range(mass_linker_rule_tabs.count()):
+            tab = mass_linker_rule_tabs.widget(i)
+            if tab is None:
+                continue
+            widgets = rule_widgets.get(tab)
+            if not isinstance(widgets, dict):
+                continue
+            mode = str(widgets["mode_combo"].currentData() or "basic")
+            side = str(widgets["side_combo"].currentData() or "both")
+            rule_out: dict[str, Any] = {
+                "id": str(widgets.get("id") or f"rule_{i + 1}"),
+                "name": str(widgets["name_edit"].text() or "").strip() or f"Rule {i + 1}",
+                "enabled": bool(widgets["enabled_cb"].isChecked()),
+                "group_name": str(widgets["group_name_edit"].text() or "").strip() or "Mass Linker",
+                "mode": mode,
+                "side": side,
+                "target_mode": str(widgets["target_mode_combo"].currentData() or "note"),
+                "source_label_field": str(_combo_value(widgets["source_label_field_combo"]) or "").strip(),
+                "target_note_types": _checked_items(widgets["target_note_types_model"]),
+                "target_templates": _checked_items(widgets["target_templates_model"]),
+                "target_conditions": widgets["target_cond_editor"]["collect"](),
+                "source_conditions": widgets["source_cond_editor"]["collect"](),
+                "source_tag": str(widgets["source_tag_edit"].text() or "").strip(),
+                "source_tag_base": str(widgets["source_tag_base_edit"].text() or "").strip(),
+                "selector_separator": str(widgets["separator_edit"].text() or "::"),
+                "selector_field": str(_combo_value(widgets["selector_field_combo"]) or "").strip(),
+                "source_note_type": str(_combo_value(widgets["source_note_type_combo"]) or "").strip(),
+                "mapping_field": str(_combo_value(widgets["mapping_field_combo"]) or "").strip(),
+                "source_templates": _checked_items(widgets["source_templates_model"]),
+                "source_template_mappings": widgets["mapping_editor"]["collect"](),
+            }
+            if mode == "basic":
+                rule_out["target_conditions"] = []
+                rule_out["source_conditions"] = []
 
-            if mass_linker_enabled_cb.isChecked():
-                if not tag:
-                    errors.append(
-                        f"Mass Linker: tag missing for note type: {_note_type_label(nt_id)}"
-                    )
+            if mass_linker_enabled_cb.isChecked() and bool(rule_out.get("enabled", True)):
                 if side not in ("front", "back", "both"):
-                    errors.append(
-                        f"Mass Linker: side invalid for note type: {_note_type_label(nt_id)}"
-                    )
+                    errors.append(f"Mass Linker: invalid side in rule '{rule_out['name']}'")
+                if mode == "basic" and not str(rule_out.get("source_tag", "")).strip():
+                    errors.append(f"Mass Linker: basic rule '{rule_out['name']}' needs a source tag")
+                if mode == "advanced_tag" and not str(rule_out.get("source_tag_base", "")).strip():
+                    errors.append(f"Mass Linker: advanced tag rule '{rule_out['name']}' needs a tag base")
+                if mode == "advanced_notetype" and not str(rule_out.get("source_note_type", "")).strip():
+                    errors.append(f"Mass Linker: advanced notetype rule '{rule_out['name']}' needs source note type")
 
-            payload: dict[str, object] = {}
-            if templates:
-                payload["templates"] = templates
-            if side:
-                payload["side"] = side
-            if tag:
-                payload["tag"] = tag
-            if label_field:
-                payload["label_field"] = label_field
-            if payload:
-                mass_linker_rules_cfg[nt_id] = payload
+            rules_out.append(rule_out)
 
         config._cfg_set(cfg, "mass_linker.enabled", bool(mass_linker_enabled_cb.isChecked()))
-        config._cfg_set(
-            cfg,
-            "mass_linker.label_field",
-            str(_combo_value(copy_label_field_combo) or "").strip(),
-        )
-        config._cfg_set(cfg, "mass_linker.rules", mass_linker_rules_cfg)
+        config._cfg_set(cfg, "mass_linker.rules", rules_out)
 
     return _save
 

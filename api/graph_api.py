@@ -6,6 +6,8 @@ from typing import Any
 
 from aqt import mw
 
+from .. import logging
+
 ADDON_DIR = os.path.dirname(os.path.dirname(__file__))
 CONFIG_PATH = os.path.join(ADDON_DIR, "config.json")
 
@@ -320,6 +322,13 @@ def _note_type_info() -> dict[str, dict[str, Any]]:
 def get_graph_config(*, reload: bool = True) -> dict[str, Any]:
     if reload:
         config.reload_config()
+    mass_rules_raw = config.MASS_LINKER_RULES or {}
+    if isinstance(mass_rules_raw, dict):
+        mass_rules_out: Any = dict(mass_rules_raw)
+    elif isinstance(mass_rules_raw, list):
+        mass_rules_out = list(mass_rules_raw)
+    else:
+        mass_rules_out = []
     return {
         "debug_enabled": bool(config.DEBUG),
         "family_gate": {
@@ -374,7 +383,7 @@ def get_graph_config(*, reload: bool = True) -> dict[str, Any]:
         },
         "mass_linker": {
             "enabled": bool(config.MASS_LINKER_ENABLED),
-            "rules": dict(config.MASS_LINKER_RULES or {}),
+            "rules": mass_rules_out,
         },
         "stability": {
             "default_threshold": float(config.STABILITY_DEFAULT_THRESHOLD),
@@ -382,6 +391,234 @@ def get_graph_config(*, reload: bool = True) -> dict[str, Any]:
         },
         "note_types": _note_type_info(),
     }
+
+
+def _provider_category_for_graph_api(provider_id: str) -> str:
+    pid = str(provider_id or "").strip().lower()
+    if pid == "family_gate" or pid.startswith("family_") or "family" in pid:
+        return "family"
+    if (
+        pid == "mass_linker"
+        or pid == "note_linker"
+        or pid.startswith("mass_")
+        or "mass" in pid
+        or "note_linker" in pid
+    ):
+        return "mass"
+    return "other"
+
+
+def _iter_link_providers_for_graph_api() -> list[tuple[str, int, Any]]:
+    try:
+        from ..modules import link_core
+    except Exception:
+        return []
+    try:
+        return list(link_core._iter_providers())  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    providers = getattr(link_core, "_PROVIDERS", {})
+    out: list[tuple[str, int, Any]] = []
+    if isinstance(providers, dict):
+        for provider_id, payload in providers.items():
+            try:
+                prio, fn = payload
+                out.append((str(provider_id), int(prio), fn))
+            except Exception:
+                continue
+    out.sort(key=lambda x: (x[1], x[0]))
+    return out
+
+
+def _payload_refs_for_graph_api(payload: Any) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+
+    def _add_ref(ref: Any, group_key: str = "") -> None:
+        try:
+            kind = str(getattr(ref, "kind", "nid") or "nid").strip().lower()
+            target_id = int(getattr(ref, "target_id", 0) or 0)
+            label = str(getattr(ref, "label", "") or "")
+        except Exception:
+            return
+        if target_id <= 0:
+            return
+        if kind not in ("nid", "cid"):
+            kind = "nid"
+        out.append(
+            {
+                "kind": kind,
+                "target_id": target_id,
+                "label": label,
+                "group": str(group_key or ""),
+            }
+        )
+
+    links = getattr(payload, "links", None) or []
+    groups = getattr(payload, "groups", None) or []
+    for ref in links:
+        _add_ref(ref, "")
+    for grp in groups:
+        gkey = str(getattr(grp, "key", "") or "")
+        summary = getattr(grp, "summary", None)
+        if summary is not None:
+            _add_ref(summary, gkey)
+        for ref in (getattr(grp, "links", None) or []):
+            _add_ref(ref, gkey)
+    return out
+
+
+def get_link_provider_edges(
+    *,
+    note_ids: list[int] | None = None,
+    provider_ids: list[str] | None = None,
+    include_family: bool = False,
+) -> dict[str, Any]:
+    if mw is None or not getattr(mw, "col", None):
+        return {"providers": [], "edges": []}
+
+    try:
+        from ..modules import link_core
+    except Exception:
+        return {"providers": [], "edges": []}
+
+    providers_all = _iter_link_providers_for_graph_api()
+    selected_provider_ids = {
+        str(x).strip().lower() for x in (provider_ids or []) if str(x).strip()
+    }
+
+    providers: list[tuple[str, int, Any, str]] = []
+    for provider_id, prio, fn in providers_all:
+        pid = str(provider_id or "").strip()
+        if not pid or not callable(fn):
+            continue
+        pid_low = pid.lower()
+        if selected_provider_ids and pid_low not in selected_provider_ids:
+            continue
+        category = _provider_category_for_graph_api(pid)
+        if category == "family" and not include_family:
+            continue
+        providers.append((pid, int(prio), fn, category))
+
+    if not providers:
+        return {"providers": [], "edges": []}
+
+    col = mw.col
+    source_nids: list[int] = []
+    if note_ids:
+        seen_nids: set[int] = set()
+        for nid in note_ids:
+            try:
+                val = int(nid or 0)
+            except Exception:
+                continue
+            if val <= 0 or val in seen_nids:
+                continue
+            seen_nids.add(val)
+            source_nids.append(val)
+    else:
+        try:
+            source_nids = [int(x) for x in (col.find_notes("") or []) if int(x) > 0]
+        except Exception:
+            source_nids = []
+
+    providers_meta = [
+        {"id": pid, "order": int(prio), "category": category}
+        for pid, prio, _fn, category in providers
+    ]
+    if not source_nids:
+        return {"providers": providers_meta, "edges": []}
+
+    edges: list[dict[str, Any]] = []
+    seen_edges: set[tuple[str, int, str, int, str, str]] = set()
+    for source_nid in source_nids:
+        try:
+            note = col.get_note(int(source_nid))
+        except Exception:
+            continue
+        try:
+            cards = note.cards() or []
+        except Exception:
+            cards = []
+        if not cards:
+            continue
+        for card in cards:
+            known_nids: set[int] = set()
+            known_cids: set[int] = set()
+            for kind in ("reviewQuestion", "reviewAnswer"):
+                for provider_id, _prio, provider_fn, category in providers:
+                    try:
+                        ctx = link_core.ProviderContext(
+                            card=card,
+                            kind=kind,
+                            note=note,
+                            html="",
+                            existing_nids=set(known_nids),
+                            existing_cids=set(known_cids),
+                        )
+                        payloads = provider_fn(ctx) or []
+                    except Exception:
+                        continue
+                    for payload in payloads:
+                        for ref in _payload_refs_for_graph_api(payload):
+                            ref_kind = str(ref.get("kind", "nid") or "nid").strip().lower()
+                            ref_target = int(ref.get("target_id", 0) or 0)
+                            ref_label = str(ref.get("label", "") or "")
+                            ref_group = str(ref.get("group", "") or "")
+                            if ref_target <= 0:
+                                continue
+
+                            target_nid = 0
+                            if ref_kind == "cid":
+                                known_cids.add(ref_target)
+                                try:
+                                    target_nid = int(col.get_card(ref_target).nid)
+                                except Exception:
+                                    target_nid = 0
+                            else:
+                                known_nids.add(ref_target)
+                                try:
+                                    target_nid = int(col.get_note(ref_target).id)
+                                except Exception:
+                                    target_nid = 0
+                            if target_nid <= 0:
+                                continue
+
+                            edge_key = (
+                                str(provider_id),
+                                int(source_nid),
+                                str(ref_kind),
+                                int(ref_target),
+                                str(ref_label),
+                                str(ref_group),
+                            )
+                            if edge_key in seen_edges:
+                                continue
+                            seen_edges.add(edge_key)
+                            edges.append(
+                                {
+                                    "provider_id": str(provider_id),
+                                    "provider_category": str(category),
+                                    "source_nid": int(source_nid),
+                                    "source_cid": int(getattr(card, "id", 0) or 0),
+                                    "target_kind": str(ref_kind),
+                                    "target_id": int(ref_target),
+                                    "target_nid": int(target_nid),
+                                    "label": str(ref_label),
+                                    "group": str(ref_group),
+                                }
+                            )
+
+    logging.dbg(
+        "graph_api provider edges",
+        "providers=",
+        len(providers_meta),
+        "source_notes=",
+        len(source_nids),
+        "edges=",
+        len(edges),
+        source="graph_api",
+    )
+    return {"providers": providers_meta, "edges": edges}
 
 
 def _open_note_editor_for_graph_api(
@@ -502,6 +739,8 @@ def _install_graph_api() -> None:
         "get_config": get_graph_config,
         "get_dependency_tree": get_dependency_tree,
         "get_prio_chain": get_dependency_tree,
+        "get_link_provider_edges": get_link_provider_edges,
+        "get_provider_link_edges": get_link_provider_edges,
         "version": __version__,
         # Keep editor entry points on graph API so dependent add-ons can
         # open the AJPC popup editor with its integrated side panel.

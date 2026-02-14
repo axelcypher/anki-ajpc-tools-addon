@@ -9,6 +9,10 @@ _AJPC_CMD_TARGET_RE = re.compile(
     r"AJPCNoteLinker-open(?:Preview|Editor)[^0-9]*([0-9]+)",
     re.IGNORECASE,
 )
+_AJPC_CMD_CARD_TARGET_RE = re.compile(
+    r"AJPCNoteLinker-open(?:PreviewCard|EditorCard)[^0-9]*([0-9]+)",
+    re.IGNORECASE,
+)
 
 
 def existing_link_targets(html: str) -> tuple[set[int], set[int]]:
@@ -34,6 +38,11 @@ def existing_link_targets(html: str) -> tuple[set[int], set[int]]:
             nids.add(int(m.group(1)))
         except Exception:
             continue
+    for m in _AJPC_CMD_CARD_TARGET_RE.finditer(html):
+        try:
+            cids.add(int(m.group(1)))
+        except Exception:
+            continue
 
     return nids, cids
 
@@ -43,6 +52,13 @@ def convert_links(html: str) -> tuple[str, int]:
         label = match.group(1).replace("\\[", "[")
         kind = str(match.group(2) or "").lower()
         target = str(match.group(3) or "")
+        if kind == "cid":
+            return (
+                f'<a class="ajpc-note-link ajpc-note-link-card" '
+                f'href=\'javascript:pycmd("AJPCNoteLinker-openPreviewCard"+"{target}")\' '
+                f'oncontextmenu=\'event.preventDefault();pycmd("AJPCNoteLinker-openEditorCard"+"{target}")\'>'  # noqa: E501
+                f'<div class="ajpc-note-link-text">{label}</div></a>'
+            )
         if kind != "nid":
             return match.group(0)
         return (

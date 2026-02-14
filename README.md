@@ -21,7 +21,7 @@ This add-on helps you control *when* Anki cards become available, so you can lea
 
 This add-on relies primarily on **FSRS** stability ratings, so you must use FSRS to use it!
 
-I recommend using it with its companion add-on: [anki-ajpc-family-graph-addon](https://github.com/axelcypher/anki-ajpc-family-graph-addon). It adds a nice, force-graph-based GUI for connecting notes and editing relationships between them. (I highly recommend it, because I may have overengineered this add-on to the point where even I can't fully comprehend what connects to what without proper visualization.)
+I recommend using it with its companion add-on: [anki-ajpc-tools-graph-addon](https://github.com/axelcypher/anki-ajpc-tools-graph-addon). It adds a nice, force-graph-based GUI for connecting notes and editing relationships between them. (I highly recommend it, because I may have overengineered this add-on to the point where even I can't fully comprehend what connects to what without proper visualization.)
 
 Note types are referenced internally by their **model ID** (not the visible name). The settings UI shows names, so you only need to care about IDs if you edit the JSON config manually.
 
@@ -211,11 +211,19 @@ Mass Linker provides specific cards with links based upon tags automatically.
 * Each note type that wants to utilize this feature **needs a field "LinkedNotes"** in the card template.
 * Mass links are inserted into the **parent element of the "LinkedNotes" field** in the card template.
   * Example: `<div id="links-wrapper">{{LinkedNotes}}</div>` -> links are injected into `#links-wrapper` even if "LinkedNotes" is empty.
-* Mass links can be configured per note type:
-  * **Label field** (optional; defaults to sort field)
-  * **Templates** to include (leave empty = all)
-  * **Side** (front/back/both)
-  * **Tag** to search for linked notes
+* Rules are now configured as **dynamic tabs** (add/remove freely), not generated from General note-type selection.
+* Every rule tab supports:
+  * **Group name** (links are rendered grouped like Family links)
+  * **Mode**:
+    * `Basic`: tag-based `nid` links (legacy behavior)
+    * `Advanced: Tag source`: tag-base + free selector separator (`;`, `--`, `::`, ...)
+    * `Advanced: NoteType source`: source note type with `target_mode = note|card`
+  * **Targeting**:
+    * optional target note types
+    * optional target template ords
+    * condition blocks with `AND|OR|ANY` and `NOT`
+  * **Source conditions** with the same condition logic
+* In `target_mode = card`, links are generated as `cid...` and rendered as clickable links.
 
 ---
 
@@ -234,9 +242,25 @@ All settings are configured via the Add-on Settings UI:
 * **Settings -> Main Settings**
 * Field explanations are available via **hover tooltips on labels**.
 * Link rendering in `link_core` is always handled directly by AJpC (`convert_links(...)`).
+* General tab includes **Preload graph on startup** (shown only when AJpC Tools Graph Companion is installed) to warm-load the graph window in background.
+* Browser Link-Core sidepanel context menus (list, mini-graph, dep-tree) include **Show in AJpC Graph** for direct handoff to the companion graph.
 
 Note: You should always ***back up your collection before using add-ons.*** While this add-on can't delete cards, it uses tags for some functionality, 
 and ***misconfiguration could scramble up your decks!***
+
+---
+
+## Companion Graph API
+
+For AJpC Tools Graph, the graph API now exposes provider-resolved link edges:
+
+- `get_link_provider_edges(...)` (alias: `get_provider_link_edges(...)`)
+  - Executes registered Link Core providers directly.
+  - Returns a normalized `providers` list and resolved `edges` list.
+  - Edge rows include `provider_id`, `source_nid`, `target_kind`, `target_id`, and resolved `target_nid`.
+  - Family provider edges can be excluded via `include_family=False` (default), so graph-family rendering stays on the graph side.
+
+This avoids duplicating provider/config parsing in the companion graph add-on when rule structures change.
 
 ---
 

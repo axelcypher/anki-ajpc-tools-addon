@@ -13,6 +13,7 @@ from aqt.qt import (
     QApplication,
     QBrush,
     QColor,
+    QCursor,
     QFont,
     QLabel,
     QListWidget,
@@ -31,6 +32,7 @@ from aqt.editor import Editor
 from aqt.browser.previewer import Previewer
 from anki.cards import Card
 
+from .. import logging
 from . import ModuleSpec
 from ._force_graph_view import ForceGraphView
 from ._note_editor import open_note_editor
@@ -691,6 +693,65 @@ def _open_note_preview(nid: int) -> None:
     previewer.open()
 
 
+def _find_companion_graph_open_callback():
+    if mw is None:
+        return None
+    reg = getattr(mw, "_ajpc_menu_registry", None)
+    if not isinstance(reg, dict):
+        return None
+    top_items = list(reg.get("top_internal", []) or []) + list(reg.get("top_external", []) or [])
+    for item in top_items:
+        label = str(item.get("label", "") or "").strip().lower()
+        if label != "show graph":
+            continue
+        cb = item.get("callback")
+        if callable(cb):
+            return cb
+    return None
+
+
+def _focus_companion_graph_note(nid: int, attempt: int = 1) -> None:
+    if mw is None:
+        return
+    target = int(nid or 0)
+    if target <= 0:
+        return
+    win = getattr(mw, "_ajpc_tools_graph_win", None)
+    if win is not None and hasattr(win, "_request_focus_note_in_graph"):
+        try:
+            win._request_focus_note_in_graph(target)
+            logging.dbg("browser graph: focused companion graph note", target, source="browser_graph")
+        except Exception as exc:
+            logging.warn(
+                "browser graph: focus companion graph note failed",
+                target,
+                repr(exc),
+                source="browser_graph",
+            )
+        return
+    if attempt >= 25:
+        logging.warn("browser graph: companion graph window not available", target, source="browser_graph")
+        return
+    QTimer.singleShot(120, lambda n=target, a=attempt + 1: _focus_companion_graph_note(n, a))
+
+
+def _show_note_in_ajpc_graph(nid: int) -> None:
+    target = int(nid or 0)
+    if target <= 0:
+        return
+    cb = _find_companion_graph_open_callback()
+    if not callable(cb):
+        logging.warn("browser graph: companion graph callback missing", source="browser_graph")
+        return
+    try:
+        cb()
+        logging.dbg("browser graph: companion graph open requested", target, source="browser_graph")
+    except Exception as exc:
+        logging.warn("browser graph: companion graph open failed", repr(exc), source="browser_graph")
+        return
+    _focus_companion_graph_note(target, 1)
+
+
 def _item_meta(item: QListWidgetItem) -> tuple[int, str, int, str, bool]:
     raw = item.data(Qt.ItemDataRole.UserRole)
     if not isinstance(raw, dict):
@@ -778,13 +839,15 @@ def _show_item_menu(widget: QListWidget, pos) -> None:
     menu = QMenu(widget)
     action_editor = None
     action_preview = None
+    action_show_graph = None
     action_copy_nid = None
     action_copy_cid = None
 
     if open_nid > 0:
         action_editor = menu.addAction("Open Editor")
         action_preview = menu.addAction("Open Preview")
-    if kind in ("nid", "cid") and link_id > 0 and (action_editor or action_preview):
+        action_show_graph = menu.addAction("Show in AJpC Graph")
+    if open_nid > 0 and (kind in ("nid", "cid") and link_id > 0):
         menu.addSeparator()
     if kind == "nid" and link_id > 0:
         action_copy_nid = menu.addAction("Copy Note ID")
@@ -798,12 +861,40 @@ def _show_item_menu(widget: QListWidget, pos) -> None:
     if chosen is action_preview and open_nid > 0:
         _open_note_preview(open_nid)
         return
+    if chosen is action_show_graph and open_nid > 0:
+        _show_note_in_ajpc_graph(open_nid)
+        return
     if chosen is action_copy_nid and kind == "nid" and link_id > 0:
         _copy_text(str(link_id))
         return
     if chosen is action_copy_cid and kind == "cid" and link_id > 0:
         _copy_text(str(link_id))
         return
+
+
+def _show_note_context_menu(widget: QWidget, nid: int) -> None:
+    target = int(nid or 0)
+    if target <= 0:
+        return
+    menu = QMenu(widget)
+    action_editor = menu.addAction("Open Editor")
+    action_preview = menu.addAction("Open Preview")
+    action_show_graph = menu.addAction("Show in AJpC Graph")
+    menu.addSeparator()
+    action_copy_nid = menu.addAction("Copy Note ID")
+
+    chosen = menu.exec(QCursor.pos())
+    if chosen is action_editor:
+        _open_note_editor(target)
+        return
+    if chosen is action_preview:
+        _open_note_preview(target)
+        return
+    if chosen is action_show_graph:
+        _show_note_in_ajpc_graph(target)
+        return
+    if chosen is action_copy_nid:
+        _copy_text(str(target))
 
 
 def _select_item_by_nid(widget: QListWidget, nid: int) -> bool:
@@ -1590,6 +1681,9 @@ class _BrowserGraphPanel(QWidget):
         self.prio_view = PrioChainView(self.splitter)
         self.prio_view.set_open_editor_handler(_open_note_editor)
         self.prio_view.set_select_handler(lambda nid, p=self: _sync_list_selection_from_graph(p, nid))
+        self.prio_view.set_context_menu_handler(
+            lambda nid, p=self: _show_note_context_menu(p.prio_view, int(nid))
+        )
         self.prio_view.set_needed_height_handler(lambda h, p=self: _on_prio_needed_height(p, h))
 
         self.section_gap = QWidget(self.splitter)
@@ -1599,6 +1693,9 @@ class _BrowserGraphPanel(QWidget):
         self.graph_view = ForceGraphView(self.splitter)
         self.graph_view.set_open_editor_handler(_open_note_editor)
         self.graph_view.set_select_handler(lambda nid, p=self: _sync_list_selection_from_graph(p, nid))
+        self.graph_view.set_context_menu_handler(
+            lambda nid, p=self: _show_note_context_menu(p.graph_view, int(nid))
+        )
 
         self.splitter.addWidget(self.links_container)
         self.splitter.addWidget(self.prio_view)
