@@ -39,22 +39,32 @@ def _tip_label(text: str, tip: str) -> QLabel:
 def _is_tools_graph_installed() -> bool:
     if mw is None or not getattr(mw, "addonManager", None):
         return False
+    if callable(_find_graph_open_callback()):
+        return True
     mgr = mw.addonManager
+    addons_root = ""
+    try:
+        addons_root = os.path.dirname(config.ADDON_DIR)
+    except Exception:
+        addons_root = ""
     try:
         if hasattr(mgr, "all_addon_meta"):
             for meta in mgr.all_addon_meta():
                 dir_name = str(getattr(meta, "dir_name", "") or "").strip().lower()
                 name = str(getattr(meta, "name", "") or "").strip().lower()
-                if dir_name == "ajpc-tools-graph_dev":
+                if "ajpc tools graph" in name:
                     return True
                 if "ajpc tools graph companion" in name:
                     return True
-    except Exception:
-        pass
-    try:
-        addons_root = os.path.dirname(config.ADDON_DIR)
-        if os.path.isdir(os.path.join(addons_root, "ajpc-tools-graph_dev")):
-            return True
+                if not dir_name or not addons_root:
+                    continue
+                addon_dir = os.path.join(addons_root, dir_name)
+                if not os.path.isdir(addon_dir):
+                    continue
+                if os.path.isfile(os.path.join(addon_dir, "graph_view.py")) and os.path.isfile(
+                    os.path.join(addon_dir, "graph_web_assets.py")
+                ):
+                    return True
     except Exception:
         pass
     return False
