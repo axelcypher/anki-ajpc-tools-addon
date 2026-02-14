@@ -726,6 +726,7 @@ def get_dependency_tree(
 
 def _install_graph_api() -> None:
     if mw is None:
+        logging.warn("install skipped: mw missing", source="graph_api")
         return
     editor_api = {
         "open_note_editor": _open_note_editor_for_graph_api,
@@ -752,6 +753,14 @@ def _install_graph_api() -> None:
         "is_note_editor_open": _is_note_editor_open_for_graph_api,
         "editor": editor_api,
     }
+    logging.dbg(
+        "graph api installed",
+        "keys=",
+        len(mw._ajpc_graph_api.keys()),
+        "version=",
+        str(__version__),
+        source="graph_api",
+    )
 
 
 def _selfcheck(*, reason: str = "init") -> None:
@@ -763,6 +772,10 @@ def _selfcheck(*, reason: str = "init") -> None:
         mw._ajpc_graph_api_status = "ok" if ok else "missing"
     except Exception:
         pass
+    if ok:
+        logging.info("selfcheck ok", "reason=", str(reason), source="graph_api")
+    else:
+        logging.warn("selfcheck missing", "reason=", str(reason), source="graph_api")
     try:
         from aqt.utils import tooltip
 
@@ -776,5 +789,6 @@ def _selfcheck(*, reason: str = "init") -> None:
 
 
 def install_graph_api() -> None:
+    logging.dbg("install_graph_api called", source="graph_api")
     _install_graph_api()
     _selfcheck(reason="init")
