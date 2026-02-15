@@ -332,6 +332,12 @@ def get_graph_config(*, reload: bool = True) -> dict[str, Any]:
         mass_rules_out = []
     return {
         "debug_enabled": bool(config.DEBUG),
+        "debug": {
+            "enabled": bool(config.DEBUG),
+            "level": str(getattr(config, "DEBUG_LEVEL", "debug") or "debug"),
+            "module_logs": dict(getattr(config, "DEBUG_MODULE_LOGS", {}) or {}),
+            "module_levels": dict(getattr(config, "DEBUG_MODULE_LEVELS", {}) or {}),
+        },
         "family_gate": {
             "enabled": bool(config.FAMILY_GATE_ENABLED),
             "run_on_sync": bool(config.FAMILY_GATE_RUN_ON_SYNC),
