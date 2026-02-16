@@ -175,6 +175,8 @@ The fallback reading field is configurable via `example_gate.reading_field`
 Reading fallback now evaluates both readings (`cloze` + derived `lemma`) and,
 if strict key-scope is empty, allows a single resolvable candidate from the
 reading set to pass (`reading_fallback:resolvable_unscoped`).
+Matching normalization also strips leading prefix markers used for suffix cards
+(`~`, `〜`, `～`) on key/reading paths before lookup.
 For `suru` verb forms that tokenize ambiguously (for example `残業します`),
 the resolver adds a strict `...する` fallback and only accepts candidates that
 are explicitly typed as `suru` verbs in runtime form metadata.

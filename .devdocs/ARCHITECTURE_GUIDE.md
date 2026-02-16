@@ -72,6 +72,7 @@
 - Example Unlocker lemma normalization must preserve single-kanji surfaces when lemma resolves to a different single CJK ideograph (single-kanji remap guard).
 - Example Unlocker ambiguous-lemma path should attempt literal cloze-vs-key disambiguation (`key_literal`) before failing hard, to preserve furigana-distinguished homographs.
 - Example Unlocker must normalize parser-required whitespace before kanji/`[` consistently in both cloze and vocab-key normalization paths before applying token/lemma matching.
+- Example Unlocker key/reading normalization must strip leading suffix-prefix marker characters (`~`, `〜`, `～`) before key/readings are indexed or matched.
 - Example Unlocker honorific handling must be narrow: treat only honorific-equivalent lemma/cloze pairs (`御X` <-> `おX`/`ごX`) as equivalent, then run cloze-key lookup with literal disambiguation before surface fallback.
 - Example Unlocker fallback stage must include normalized reading matching (`example_gate.reading_field`, default `VocabReading`, normalized to hira) and only accept reading candidates that satisfy key/literal constraints; unresolved reading fan-out should fail as `ambiguous_reading:<reading>`.
 - Example Unlocker reading fallback must evaluate both cloze-derived and lemma-derived readings; when strict key-scope is empty, a unique resolvable candidate may be accepted (`reading_fallback:resolvable_unscoped`) to avoid false `no_vocab_match` on kanji-variant lemmas.

@@ -37,6 +37,7 @@
 - Increased Example Unlocker verb/adjective tokenization acceptance window from 2 to 4 tokens for lemma/reading extraction before `ambiguous_tokenization`.
 - Updated Example Unlocker reading fallback to use both cloze + lemma readings and allow a unique resolvable candidate when strict key-scope is empty (`reading_fallback:resolvable_unscoped`).
 - Expanded Example Unlocker mapping-debug popup with reading-fallback diagnostics and tied Mapping-debug row visibility to Debug mode.
+- Added normalization filtering for leading suffix-prefix markers (`~`, `〜`, `～`) on Example Unlocker key/reading matching paths.
 
 ## 1.0.0-beta.1 - 2026-02-14
 

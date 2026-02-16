@@ -33,6 +33,7 @@
 - 2026-02-17 00:12:26: Example Unlocker verb/adjective token window is now up to 4 tokens in lemma/reading extraction before returning `ambiguous_tokenization`.
 - 2026-02-17 00:10:12: Example Unlocker reading fallback now evaluates both cloze+lemma readings and can select a unique resolvable candidate even when strict key-scope is empty (`reading_fallback:resolvable_unscoped`).
 - 2026-02-17 00:10:12: Mapping-debug UI row is now shown only when Debug mode is enabled, and popup output now includes reading-fallback diagnostics (field, terms, candidates, scope filtering, selected NID).
+- 2026-02-17 00:19:28: Example Unlocker normalization now strips leading suffix-prefix markers (`~`, `〜`, `～`) from key/reading matching inputs (including literal/key normalization paths).
 
 ## Debug Clarification Status
 - 2026-02-16 19:34:30: No open debug investigation in this change set.

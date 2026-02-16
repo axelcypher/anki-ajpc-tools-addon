@@ -23,3 +23,4 @@
 - 2026-02-16 23:54:19: Example Unlocker tokenization acceptance for verb/adjective forms increased to 3 tokens (runtime matching only); no CSS classes/ids/layout styling contracts changed.
 - 2026-02-17 00:10:12: Example Unlocker `Mapping debug` row is now visible only in Debug mode; popup content expanded with reading-fallback diagnostics (field/terms/candidate sets). Qt-only behavior change, no CSS selector/id contract changes.
 - 2026-02-17 00:12:26: Example Unlocker tokenization acceptance for verb/adjective forms increased to 4 tokens (runtime matching only); no CSS classes/ids/layout styling contracts changed.
+- 2026-02-17 00:19:28: Example Unlocker key/reading normalization now strips leading suffix-prefix markers (`~`, `〜`, `～`) in runtime matching paths; no CSS classes/ids/layout styling contracts changed.

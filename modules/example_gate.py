@@ -244,6 +244,7 @@ DEFAULT_EXAMPLE_TAG_PREFIX = "_intern::example_gate::unlocked::cid"
 
 _HTML_RE = re.compile(r"<.*?>", re.DOTALL)
 _FURIGANA_BR_RE = re.compile(r"\[[^\]]*\]")
+_MATCH_PREFIX_MARK_RE = re.compile(r"^[\s~\u301c\uff5e\u223c]+")
 
 
 def _strip_html(s: str) -> str:
@@ -252,6 +253,16 @@ def _strip_html(s: str) -> str:
 
 def strip_furigana_brackets(s: str) -> str:
     return _FURIGANA_BR_RE.sub("", s or "")
+
+
+def _strip_match_prefix_markers(s: str) -> str:
+    txt = str(s or "")
+    while True:
+        nxt = _MATCH_PREFIX_MARK_RE.sub("", txt)
+        if nxt == txt:
+            break
+        txt = nxt
+    return txt
 
 
 def norm_text(s: str) -> str:
@@ -264,6 +275,7 @@ def norm_text(s: str) -> str:
         s = s.strip()
     if config.KEY_NFC:
         s = unicodedata.normalize("NFC", s)
+    s = _strip_match_prefix_markers(s)
     if config.KEY_FIRST_TOKEN:
         s = s.split(" ")[0] if s else ""
     return s
@@ -273,6 +285,7 @@ def _norm_literal_text(s: str) -> str:
     out = _strip_html(s or "")
     out = out.strip()
     out = unicodedata.normalize("NFC", out)
+    out = _strip_match_prefix_markers(out)
     return out
 
 
