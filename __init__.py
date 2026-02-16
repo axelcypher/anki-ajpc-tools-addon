@@ -4,6 +4,7 @@ from aqt import gui_hooks, mw
 
 from . import _vendor_loader
 from . import config, logging
+from . import config_migrations
 from .api import graph_api, note_editor_api, settings_api
 from .modules import discover_modules, iter_run_items, iter_settings_items
 from .ui import menu
@@ -39,9 +40,9 @@ def _install_addons_dialog_config_guard() -> None:
         mw._ajpc_addons_cfg_guard_installed = True
 
 
-config.migrate_legacy_keys()
-config.migrate_note_type_names_to_ids()
-config.migrate_template_names_to_ords()
+config_migrations.migrate_legacy_keys()
+config_migrations.migrate_note_type_names_to_ids()
+config_migrations.migrate_template_names_to_ords()
 config.reload_config()
 _vendor_paths = _vendor_loader.install_vendor_paths(config.ADDON_DIR)
 _install_addons_dialog_config_guard()
