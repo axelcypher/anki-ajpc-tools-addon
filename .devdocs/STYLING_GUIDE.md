@@ -17,3 +17,4 @@
 - 2026-02-16 22:16:00: Example Unlocker literal cloze-key disambiguation added (runtime matching only); no CSS classes/ids/layout styling contracts changed.
 - 2026-02-16 22:26:00: Example Unlocker furigana-spacing normalization added in matching pipeline (runtime only); no CSS classes/ids/layout styling contracts changed.
 - 2026-02-16 22:56:54: Example Unlocker honorific matching was narrowed to honorific-equivalent lemma/cloze reconciliation plus literal disambiguation (runtime only); no CSS classes/ids/layout styling contracts changed.
+- 2026-02-16 23:23:43: Example Unlocker reading-index fallback (`VocabReading` normalized) added in matching pipeline (runtime only); no CSS classes/ids/layout styling contracts changed.

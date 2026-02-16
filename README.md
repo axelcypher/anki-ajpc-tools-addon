@@ -167,6 +167,9 @@ Spacing inserted before kanji for furigana parsing is normalized away on both si
 If lemma and cloze differ only by honorific prefix form (`御X` vs `おX`/`ごX`),
 the resolver treats them as honorific-equivalent and retries via cloze-key
 lookup (with literal disambiguation) before `no_vocab_match`.
+If lemma/canonicalization still does not resolve safely, the resolver performs
+an additional fallback via normalized reading (`VocabReading`-based index) and
+only accepts candidates that also pass key/literal constraints.
 
 ### Mapping debug lookup (Settings)
 

@@ -273,6 +273,35 @@ def _norm_literal_text(s: str) -> str:
     return out
 
 
+def _norm_reading_key(s: str) -> str:
+    raw = norm_text(s or "")
+    if not raw:
+        return ""
+    return _to_hira(raw)
+
+
+def _extract_vocab_reading_key(note, key_src: str) -> str:
+    candidates = [
+        "VocabReading",
+        f"{config.VOCAB_KEY_FIELD}Reading" if config.VOCAB_KEY_FIELD else "",
+        "Reading",
+    ]
+    seen: set[str] = set()
+    for fname in candidates:
+        field = str(fname or "").strip()
+        if not field or field in seen:
+            continue
+        seen.add(field)
+        try:
+            if field in note:
+                val = _norm_reading_key(str(note[field] or ""))
+                if val:
+                    return val
+        except Exception:
+            continue
+    return _norm_reading_key(_strip_html(strip_furigana_brackets(key_src or "")))
+
+
 _CLOZE_RE = re.compile(r"\{\{c\d+::(.*?)(?:::(.*?))?\}\}", re.DOTALL)
 _CLOZE_SPACING_RE = re.compile(r"\s+(?=[\u3400-\u9FFF\[])", re.UNICODE)
 _FORCE_NID_TAG_RE = re.compile(r"^force_nid:(\d+)$", re.IGNORECASE)
@@ -597,6 +626,33 @@ def _lemma_from_surface(surface: str) -> tuple[str, str]:
     return lemma_norm, "ok"
 
 
+def _reading_from_surface(surface: str) -> str:
+    s = norm_text(surface or "")
+    if not s:
+        return ""
+    tagger = _fugashi_tagger()
+    if tagger is None:
+        return _norm_reading_key(s)
+    try:
+        tokens = [t for t in tagger(s) if str(getattr(t, "surface", "") or "").strip()]
+    except Exception:
+        return _norm_reading_key(s)
+    if len(tokens) != 1:
+        return ""
+    tok = tokens[0]
+    feat = getattr(tok, "feature", None)
+    reading = (
+        getattr(feat, "kana", None)
+        or getattr(feat, "pron", None)
+        or getattr(feat, "reading", None)
+        or str(getattr(tok, "surface", "") or "")
+    )
+    reading = str(reading or "").strip()
+    if not reading or reading == "*":
+        reading = str(getattr(tok, "surface", "") or "").strip()
+    return _norm_reading_key(reading)
+
+
 def _template_ord_form_markers(mid: int) -> dict[int, str | None]:
     cached = _MODEL_FORM_MARKER_CACHE.get(mid)
     if cached is not None:
@@ -866,6 +922,7 @@ def note_ids_for_deck(col: Collection, deck_name: str) -> list[int]:
 def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
     dict[str, list["VocabIndexEntry"]],
     dict[int, "VocabIndexEntry"],
+    dict[str, list["VocabIndexEntry"]],
     dict[str, list["SurfaceCandidate"]],
 ]:
     _MODEL_FORM_MARKER_CACHE.clear()
@@ -877,6 +934,7 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
 
     vocab_by_key: dict[str, list[VocabIndexEntry]] = {}
     vocab_by_nid: dict[int, VocabIndexEntry] = {}
+    vocab_by_reading: dict[str, list[VocabIndexEntry]] = {}
     surface_index: dict[str, list[SurfaceCandidate]] = {}
 
     for i, nid in enumerate(vocab_nids):
@@ -891,6 +949,7 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
             if not key:
                 continue
             key_literal = _norm_literal_text(key_src)
+            reading_key = _extract_vocab_reading_key(note, key_src)
 
             marker_map = _template_ord_form_markers(nt_id)
             lemma_map = _template_ord_lemma_markers(nt_id)
@@ -917,11 +976,14 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
                 nid=int(nid),
                 key=key,
                 key_literal=key_literal,
+                reading_key=reading_key,
                 note_type_id=nt_id,
                 candidate_cids=sorted(set(candidate_cids)),
                 lemma_cids=sorted(set(lemma_cids)),
             )
             vocab_by_key.setdefault(key, []).append(entry)
+            if reading_key:
+                vocab_by_reading.setdefault(reading_key, []).append(entry)
             vocab_by_nid[int(nid)] = entry
 
             if callable(ui_set) and i % 400 == 0:
@@ -935,8 +997,15 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
             dbg(traceback.format_exc())
             log_warn("example_gate: exception indexing vocab nid", nid)
 
-    dbg("example_gate: vocab keys", len(vocab_by_key), "surface keys", len(surface_index))
-    return vocab_by_key, vocab_by_nid, surface_index
+    dbg(
+        "example_gate: vocab keys",
+        len(vocab_by_key),
+        "reading keys",
+        len(vocab_by_reading),
+        "surface keys",
+        len(surface_index),
+    )
+    return vocab_by_key, vocab_by_nid, vocab_by_reading, surface_index
 
 
 def _split_honorific_prefix(s: str) -> tuple[str, str]:
@@ -962,15 +1031,68 @@ def _is_honorific_equivalent(a: str, b: str) -> bool:
     return False
 
 
+def _select_entry_by_reading_fallback(
+    *,
+    vocab_by_reading: dict[str, list["VocabIndexEntry"]],
+    cloze_reading: str,
+    cloze_surface: str,
+    cloze_surface_literal: str,
+    lemma: str,
+    surface_index: dict[str, list["SurfaceCandidate"]],
+) -> tuple["VocabIndexEntry | None", str | None, set[int]]:
+    related_nids: set[int] = set()
+    if not cloze_reading:
+        return None, None, related_nids
+
+    candidates = list(vocab_by_reading.get(cloze_reading, []))
+    if not candidates:
+        return None, None, related_nids
+
+    for cand in candidates:
+        related_nids.add(int(cand.nid))
+
+    scoped = [cand for cand in candidates if cand.key in {cloze_surface, lemma}]
+    if not scoped:
+        return None, f"ambiguous_reading:{cloze_reading}", related_nids
+
+    if len(scoped) == 1:
+        return scoped[0], "reading_fallback", related_nids
+
+    literal_hits = [
+        cand for cand in scoped
+        if cand.key_literal and cand.key_literal == cloze_surface_literal
+    ]
+    if len(literal_hits) == 1:
+        return literal_hits[0], "reading_fallback:literal", related_nids
+
+    resolvable: list[VocabIndexEntry] = []
+    for cand in scoped:
+        target_cids, target_err = _resolve_target_cids(
+            cand,
+            cloze_surface=cloze_surface,
+            lemma=lemma,
+            cloze_reading=cloze_reading,
+            surface_index=surface_index,
+        )
+        if not target_err and len(target_cids) in (1, 2):
+            resolvable.append(cand)
+    if len(resolvable) == 1:
+        return resolvable[0], "reading_fallback:resolvable", related_nids
+
+    return None, f"ambiguous_reading:{cloze_reading}", related_nids
+
+
 def _resolve_target_cids(
     entry: "VocabIndexEntry",
     *,
     cloze_surface: str,
     lemma: str,
+    cloze_reading: str = "",
     surface_index: dict[str, list["SurfaceCandidate"]],
 ) -> tuple[list[int], str | None]:
     cloze_eq_lemma = bool(cloze_surface and lemma and _is_honorific_equivalent(cloze_surface, lemma))
-    if cloze_eq_lemma and len(entry.lemma_cids) in (1, 2):
+    cloze_eq_reading = bool(cloze_reading and entry.reading_key and cloze_reading == entry.reading_key)
+    if (cloze_eq_lemma or cloze_eq_reading) and len(entry.lemma_cids) in (1, 2):
         return list(entry.lemma_cids), None
 
     surface_hits = [h for h in surface_index.get(cloze_surface, []) if h.nid == entry.nid]
@@ -1029,11 +1151,12 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
     out["force_nid"] = force_nid
 
     lemma, lemma_status = _lemma_from_surface(cloze_surface)
+    cloze_reading = _reading_from_surface(cloze_surface)
     out["lemma"] = lemma
     out["lemma_status"] = lemma_status
     out["lookup_term"] = lemma
 
-    vocab_by_key, vocab_by_nid, surface_index = _build_vocab_mapping_indices(col)
+    vocab_by_key, vocab_by_nid, vocab_by_reading, surface_index = _build_vocab_mapping_indices(col)
 
     entry: VocabIndexEntry | None = None
     reason = ""
@@ -1093,16 +1216,59 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
                     if entry:
                         reason = "surface_match"
                 if entry is None:
-                    out["error"] = f"no_vocab_match:{cloze_surface}"
-                    out["related_nids"] = sorted(related_nids)
-                    return out
+                    entry_by_reading, reading_reason, reading_related = _select_entry_by_reading_fallback(
+                        vocab_by_reading=vocab_by_reading,
+                        cloze_reading=cloze_reading,
+                        cloze_surface=cloze_surface,
+                        cloze_surface_literal=cloze_surface_literal,
+                        lemma=lemma,
+                        surface_index=surface_index,
+                    )
+                    related_nids.update(int(x) for x in reading_related)
+                    if entry_by_reading is not None:
+                        entry = entry_by_reading
+                        reason = reading_reason or "reading_fallback"
+                        out["lookup_term"] = cloze_surface
+                    elif reading_reason:
+                        out["error"] = reading_reason
+                        out["related_nids"] = sorted(related_nids)
+                        return out
+                    else:
+                        out["error"] = f"no_vocab_match:{cloze_surface}"
+                        out["related_nids"] = sorted(related_nids)
+                        return out
 
     target_cids, target_err = _resolve_target_cids(
         entry,
         cloze_surface=cloze_surface,
         lemma=lemma,
+        cloze_reading=cloze_reading,
         surface_index=surface_index,
     )
+    if target_err and force_nid is None:
+        entry_by_reading, reading_reason, reading_related = _select_entry_by_reading_fallback(
+            vocab_by_reading=vocab_by_reading,
+            cloze_reading=cloze_reading,
+            cloze_surface=cloze_surface,
+            cloze_surface_literal=cloze_surface_literal,
+            lemma=lemma,
+            surface_index=surface_index,
+        )
+        related_nids.update(int(x) for x in reading_related)
+        if entry_by_reading is not None and int(entry_by_reading.nid) != int(entry.nid):
+            fallback_cids, fallback_err = _resolve_target_cids(
+                entry_by_reading,
+                cloze_surface=cloze_surface,
+                lemma=lemma,
+                cloze_reading=cloze_reading,
+                surface_index=surface_index,
+            )
+            if not fallback_err:
+                entry = entry_by_reading
+                target_cids = fallback_cids
+                target_err = None
+                reason = reading_reason or "reading_fallback"
+                out["lookup_term"] = cloze_surface
     if target_err:
         out["error"] = target_err
         related_nids.add(int(entry.nid))
@@ -1140,6 +1306,7 @@ class VocabIndexEntry:
     nid: int
     key: str
     key_literal: str
+    reading_key: str
     note_type_id: int
     candidate_cids: list[int]
     lemma_cids: list[int]
@@ -1186,7 +1353,7 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
         )
         return
 
-    vocab_by_key, vocab_by_nid, surface_index = _build_vocab_mapping_indices(col, ui_set=ui_set)
+    vocab_by_key, vocab_by_nid, vocab_by_reading, surface_index = _build_vocab_mapping_indices(col, ui_set=ui_set)
 
     ex_nids = note_ids_for_deck(col, config.EXAMPLE_DECK)
     dbg("example_gate: example notes", len(ex_nids))
@@ -1206,6 +1373,7 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
 
             force_nid = _parse_force_nid(note)
             lemma, lemma_status = _lemma_from_surface(cloze_surface)
+            cloze_reading = _reading_from_surface(cloze_surface)
 
             entry: VocabIndexEntry | None = None
             reason = ""
@@ -1258,15 +1426,53 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
                             if entry:
                                 reason = "surface_match"
                         if entry is None:
-                            mapping_errors.append((int(nid), f"no_vocab_match:{cloze_surface}"))
-                            continue
+                            entry_by_reading, reading_reason, _reading_related = _select_entry_by_reading_fallback(
+                                vocab_by_reading=vocab_by_reading,
+                                cloze_reading=cloze_reading,
+                                cloze_surface=cloze_surface,
+                                cloze_surface_literal=cloze_surface_literal,
+                                lemma=lemma,
+                                surface_index=surface_index,
+                            )
+                            if entry_by_reading is not None:
+                                entry = entry_by_reading
+                                reason = reading_reason or "reading_fallback"
+                            elif reading_reason:
+                                mapping_errors.append((int(nid), reading_reason))
+                                continue
+                            else:
+                                mapping_errors.append((int(nid), f"no_vocab_match:{cloze_surface}"))
+                                continue
 
             target_cids, target_err = _resolve_target_cids(
                 entry,
                 cloze_surface=cloze_surface,
                 lemma=lemma,
+                cloze_reading=cloze_reading,
                 surface_index=surface_index,
             )
+            if target_err and force_nid is None:
+                entry_by_reading, reading_reason, _reading_related = _select_entry_by_reading_fallback(
+                    vocab_by_reading=vocab_by_reading,
+                    cloze_reading=cloze_reading,
+                    cloze_surface=cloze_surface,
+                    cloze_surface_literal=cloze_surface_literal,
+                    lemma=lemma,
+                    surface_index=surface_index,
+                )
+                if entry_by_reading is not None and int(entry_by_reading.nid) != int(entry.nid):
+                    fallback_cids, fallback_err = _resolve_target_cids(
+                        entry_by_reading,
+                        cloze_surface=cloze_surface,
+                        lemma=lemma,
+                        cloze_reading=cloze_reading,
+                        surface_index=surface_index,
+                    )
+                    if not fallback_err:
+                        entry = entry_by_reading
+                        target_cids = fallback_cids
+                        target_err = None
+                        reason = reading_reason or "reading_fallback"
             if target_err:
                 mapping_errors.append((int(nid), target_err))
                 continue

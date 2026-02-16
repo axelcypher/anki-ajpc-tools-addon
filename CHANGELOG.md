@@ -31,6 +31,7 @@
 - Added Example Unlocker literal key disambiguation for ambiguous lemma matches (uses raw cloze text, e.g. `五[ご]` vs `五[いつ]`, before failing with `ambiguous_lemma`).
 - Normalized furigana parser spacing before kanji on both cloze and vocab-key paths in Example Unlocker to avoid false first-token truncation (e.g. `お 洒落[...]` -> `お洒落[...]` for matching).
 - Replaced broad honorific variant fallback in Example Unlocker with narrow honorific-equivalence handling (`御X` <-> `おX`/`ごX`) plus cloze-literal disambiguation to avoid false ambiguous matches.
+- Added reading-index fallback in Example Unlocker (`VocabReading` normalized to hira) for unresolved lemma/canonicalization cases, with key/literal guards to reduce false positives.
 
 ## 1.0.0-beta.1 - 2026-02-14
 

@@ -26,6 +26,7 @@
 - 2026-02-16 22:16:00: Example Unlocker ambiguous-lemma handling now performs a literal cloze-to-key disambiguation pass (`key_literal`) before returning `ambiguous_lemma`.
 - 2026-02-16 22:26:00: Example Unlocker now normalizes furigana parser spacing before kanji/`[` on both cloze extraction and vocab-key indexing paths to avoid spacing-induced first-token truncation.
 - 2026-02-16 22:56:54: Example Unlocker honorific handling was narrowed to honorific-equivalent lemma/cloze reconciliation (`御X` <-> `おX`/`ごX`) with cloze-key + literal disambiguation; broad variant fallback was removed.
+- 2026-02-16 23:23:43: Example Unlocker now includes a normalized reading fallback (`VocabReading` index) for unresolved lemma/canonicalization cases; fallback selection is guarded by key/literal checks and may report `ambiguous_reading:<reading>`.
 
 ## Debug Clarification Status
 - 2026-02-16 19:34:30: No open debug investigation in this change set.
