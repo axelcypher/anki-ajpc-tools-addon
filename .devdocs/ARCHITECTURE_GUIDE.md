@@ -71,3 +71,4 @@
 - Example Unlocker lemma normalization must preserve single-kanji surfaces when lemma resolves to a different single CJK ideograph (single-kanji remap guard).
 - Example Unlocker ambiguous-lemma path should attempt literal cloze-vs-key disambiguation (`key_literal`) before failing hard, to preserve furigana-distinguished homographs.
 - Example Unlocker must normalize parser-required whitespace before kanji/`[` consistently in both cloze and vocab-key normalization paths before applying token/lemma matching.
+- Example Unlocker lemma-miss path should attempt honorific key variants (`御X`, `おX`, `ごX`, `X`) before surface fallback/no-match to keep kana+kanji honorific spellings resolvable.

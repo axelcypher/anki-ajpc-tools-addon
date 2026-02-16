@@ -33,3 +33,4 @@
 [2026-02-16 22:10:45] Codex: Added single-kanji lemma guard in `modules/example_gate.py` (`single_kanji_surface_guard`) to prevent semantic remaps between distinct single CJK ideographs (e.g., `歳 -> 年`) from overriding surface lookup.
 [2026-02-16 22:15:54] Codex: Added Example Unlocker literal-key disambiguation for ambiguous lemma matches in `modules/example_gate.py` (`key_literal` + cloze-literal compare), so furigana-distinguished homographs can resolve before `ambiguous_lemma`.
 [2026-02-16 22:25:36] Codex: Added furigana parser spacing normalization (`_normalize_cloze_spacing`) in `modules/example_gate.py` and applied it to both cloze extraction and vocab-key indexing to prevent spacing-induced first-token truncation during matching.
+[2026-02-16 22:31:08] Codex: Added Example Unlocker honorific-key fallback in `modules/example_gate.py` for lemma misses (`御X` <-> `おX`/`ごX`/`X`), wired into both runtime apply and debug diagnose paths.

@@ -962,6 +962,68 @@ def _resolve_target_cids(
     return [], f"ambiguous_target_card:{entry.nid}"
 
 
+def _honorific_key_candidates(lemma: str, cloze_surface: str) -> list[str]:
+    out: list[str] = []
+
+    def _add(s: str) -> None:
+        val = norm_text(s or "")
+        if val and val not in out:
+            out.append(val)
+
+    def _variants(base: str) -> None:
+        txt = norm_text(base or "")
+        if not txt:
+            return
+        _add(txt)
+        if len(txt) >= 2 and txt.startswith("御"):
+            stem = txt[1:]
+            _add("お" + stem)
+            _add("ご" + stem)
+            _add(stem)
+        if len(txt) >= 2 and (txt.startswith("お") or txt.startswith("ご")):
+            stem = txt[1:]
+            _add("御" + stem)
+            _add(stem)
+
+    _variants(lemma)
+    _variants(cloze_surface)
+    return out
+
+
+def _resolve_honorific_lookup(
+    *,
+    vocab_by_key: dict[str, list["VocabIndexEntry"]],
+    lemma: str,
+    cloze_surface: str,
+    cloze_surface_literal: str,
+) -> tuple["VocabIndexEntry | None", str]:
+    keys = _honorific_key_candidates(lemma, cloze_surface)
+    if not keys:
+        return None, ""
+
+    entries: list[VocabIndexEntry] = []
+    seen_nids: set[int] = set()
+    for key in keys:
+        for cand in vocab_by_key.get(key, []):
+            if cand.nid in seen_nids:
+                continue
+            seen_nids.add(cand.nid)
+            entries.append(cand)
+
+    if len(entries) == 1:
+        return entries[0], keys[0]
+
+    if len(entries) > 1:
+        literal_hits = [
+            cand for cand in entries
+            if cand.key_literal and cand.key_literal == cloze_surface_literal
+        ]
+        if len(literal_hits) == 1:
+            return literal_hits[0], keys[0]
+
+    return None, ""
+
+
 def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any]:
     out: dict[str, Any] = {
         "ok": False,
@@ -1039,17 +1101,28 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
                 out["related_nids"] = sorted(related_nids)
                 return out
         else:
-            surface_hits = surface_index.get(cloze_surface, [])
-            uniq_nids = sorted({h.nid for h in surface_hits})
-            related_nids.update(int(x) for x in uniq_nids)
-            if len(uniq_nids) == 1:
-                entry = vocab_by_nid.get(uniq_nids[0])
-                if entry:
-                    reason = "surface_match"
-            if entry is None:
-                out["error"] = f"no_vocab_match:{cloze_surface}"
-                out["related_nids"] = sorted(related_nids)
-                return out
+            honorific_entry, lookup_key = _resolve_honorific_lookup(
+                vocab_by_key=vocab_by_key,
+                lemma=lemma,
+                cloze_surface=cloze_surface,
+                cloze_surface_literal=cloze_surface_literal,
+            )
+            if honorific_entry is not None:
+                entry = honorific_entry
+                reason = f"lemma:{lemma_status}:honorific"
+                out["lookup_term"] = lookup_key or lemma
+            else:
+                surface_hits = surface_index.get(cloze_surface, [])
+                uniq_nids = sorted({h.nid for h in surface_hits})
+                related_nids.update(int(x) for x in uniq_nids)
+                if len(uniq_nids) == 1:
+                    entry = vocab_by_nid.get(uniq_nids[0])
+                    if entry:
+                        reason = "surface_match"
+                if entry is None:
+                    out["error"] = f"no_vocab_match:{cloze_surface}"
+                    out["related_nids"] = sorted(related_nids)
+                    return out
 
     target_cids, target_err = _resolve_target_cids(
         entry,
@@ -1187,15 +1260,25 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
                         mapping_errors.append((int(nid), f"ambiguous_lemma:{lemma}"))
                         continue
                 else:
-                    surface_hits = surface_index.get(cloze_surface, [])
-                    uniq_nids = sorted({h.nid for h in surface_hits})
-                    if len(uniq_nids) == 1:
-                        entry = vocab_by_nid.get(uniq_nids[0])
-                        if entry:
-                            reason = "surface_match"
-                    if entry is None:
-                        mapping_errors.append((int(nid), f"no_vocab_match:{cloze_surface}"))
-                        continue
+                    honorific_entry, lookup_key = _resolve_honorific_lookup(
+                        vocab_by_key=vocab_by_key,
+                        lemma=lemma,
+                        cloze_surface=cloze_surface,
+                        cloze_surface_literal=cloze_surface_literal,
+                    )
+                    if honorific_entry is not None:
+                        entry = honorific_entry
+                        reason = f"lemma:{lemma_status}:honorific:{lookup_key or lemma}"
+                    else:
+                        surface_hits = surface_index.get(cloze_surface, [])
+                        uniq_nids = sorted({h.nid for h in surface_hits})
+                        if len(uniq_nids) == 1:
+                            entry = vocab_by_nid.get(uniq_nids[0])
+                            if entry:
+                                reason = "surface_match"
+                        if entry is None:
+                            mapping_errors.append((int(nid), f"no_vocab_match:{cloze_surface}"))
+                            continue
 
             target_cids, target_err = _resolve_target_cids(
                 entry,
