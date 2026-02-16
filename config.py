@@ -7,6 +7,7 @@ from typing import Any
 ADDON_DIR = os.path.dirname(__file__)
 CONFIG_PATH = os.path.join(ADDON_DIR, "config.json")
 
+# Module-agnostic core state.
 CFG: dict[str, Any] = {}
 DEBUG = False
 DEBUG_VERIFY_SUSPENSION = False
@@ -19,63 +20,8 @@ RUN_ON_UI = True
 STICKY_UNLOCK = True
 RESTORE_MAIN_WINDOW_GEOMETRY = True
 GRAPH_PRELOAD_ON_STARTUP = False
-STABILITY_DEFAULT_THRESHOLD = 14.0
-STABILITY_AGG = "min"
 NOTETYPES_INSTALLED = False
-MASS_LINKER_ENABLED = True
-MASS_LINKER_RULES: list[dict[str, Any]] = []
-MASS_LINKER_COPY_LABEL_FIELD = ""
-
-FAMILY_GATE_ENABLED = True
-FAMILY_FIELD = "FamilyID"
-FAMILY_SEP = ";"
-FAMILY_DEFAULT_PRIO = 0
-FAMILY_NOTE_TYPES: dict[str, Any] = {}
-FAMILY_LINK_ENABLED = False
-
-CARD_STAGES_ENABLED = True
-CARD_STAGES_RUN_ON_SYNC = True
-CARD_STAGES_NOTE_TYPES: dict[str, Any] = {}
-
-EXAMPLE_GATE_ENABLED = True
-VOCAB_DECK = ""
-EXAMPLE_DECK = ""
-VOCAB_KEY_FIELD = "Vocab"
-EXAMPLE_KEY_FIELD = "Vocab"
-EX_STAGE_SEP = "@"
-EX_STAGE_DEFAULT = 0
-EX_APPLY_ALL_CARDS = True
-
-KEY_NORM: dict[str, Any] = {}
-KEY_STRIP_HTML = True
-KEY_TRIM = True
-KEY_NFC = True
-KEY_FIRST_TOKEN = True
-KEY_STRIP_FURIGANA_BR = False
-
 WATCH_NIDS: set[int] = set()
-
-KANJI_GATE_ENABLED = True
-KANJI_GATE_BEHAVIOR = "kanji_and_components"
-KANJI_GATE_STABILITY_AGG = "min"
-KANJI_GATE_VOCAB_NOTE_TYPES: dict[str, Any] = {}
-KANJI_GATE_KANJI_NOTE_TYPE = ""
-KANJI_GATE_KANJI_FIELDS: list[str] = []
-KANJI_GATE_KANJI_FIELD = ""
-KANJI_GATE_KANJI_ALT_FIELD = ""
-KANJI_GATE_COMPONENTS_FIELD = ""
-KANJI_GATE_KANJI_RADICAL_FIELD = ""
-KANJI_GATE_RADICAL_NOTE_TYPE = ""
-KANJI_GATE_RADICAL_FIELD = ""
-KANJI_GATE_KANJI_THRESHOLD = 14.0
-KANJI_GATE_COMPONENT_THRESHOLD = 14.0
-
-CARD_SORTER_ENABLED = True
-CARD_SORTER_RUN_ON_ADD = True
-CARD_SORTER_RUN_ON_SYNC = True
-CARD_SORTER_EXCLUDE_DECKS: list[str] = []
-CARD_SORTER_EXCLUDE_TAGS: list[str] = []
-CARD_SORTER_NOTE_TYPES: dict[str, Any] = {}
 
 
 def _load_config() -> dict[str, Any]:
@@ -111,23 +57,8 @@ def reload_config() -> None:
     global DEBUG_LEVEL, DEBUG_MODULE_LOGS, DEBUG_MODULE_LEVELS
     global RUN_ON_SYNC, RUN_ON_UI
     global RESTORE_MAIN_WINDOW_GEOMETRY, GRAPH_PRELOAD_ON_STARTUP
-    global STICKY_UNLOCK, STABILITY_DEFAULT_THRESHOLD, STABILITY_AGG, NOTETYPES_INSTALLED
-    global MASS_LINKER_ENABLED, MASS_LINKER_RULES, MASS_LINKER_COPY_LABEL_FIELD
-    global FAMILY_GATE_ENABLED, FAMILY_FIELD, FAMILY_SEP, FAMILY_DEFAULT_PRIO, FAMILY_NOTE_TYPES
-    global FAMILY_LINK_ENABLED
-    global CARD_STAGES_ENABLED, CARD_STAGES_RUN_ON_SYNC, CARD_STAGES_NOTE_TYPES
-    global EXAMPLE_GATE_ENABLED, VOCAB_DECK, EXAMPLE_DECK, VOCAB_KEY_FIELD, EXAMPLE_KEY_FIELD
-    global EX_STAGE_SEP, EX_STAGE_DEFAULT, EX_APPLY_ALL_CARDS
-    global KEY_NORM, KEY_STRIP_HTML, KEY_TRIM, KEY_NFC, KEY_FIRST_TOKEN, KEY_STRIP_FURIGANA_BR
+    global STICKY_UNLOCK, NOTETYPES_INSTALLED
     global WATCH_NIDS
-    global KANJI_GATE_ENABLED, KANJI_GATE_BEHAVIOR, KANJI_GATE_STABILITY_AGG
-    global KANJI_GATE_VOCAB_NOTE_TYPES
-    global KANJI_GATE_KANJI_NOTE_TYPE, KANJI_GATE_KANJI_FIELDS
-    global KANJI_GATE_KANJI_FIELD, KANJI_GATE_KANJI_ALT_FIELD, KANJI_GATE_COMPONENTS_FIELD
-    global KANJI_GATE_KANJI_RADICAL_FIELD, KANJI_GATE_RADICAL_NOTE_TYPE, KANJI_GATE_RADICAL_FIELD
-    global KANJI_GATE_KANJI_THRESHOLD, KANJI_GATE_COMPONENT_THRESHOLD
-    global CARD_SORTER_ENABLED, CARD_SORTER_RUN_ON_ADD, CARD_SORTER_RUN_ON_SYNC
-    global CARD_SORTER_EXCLUDE_DECKS, CARD_SORTER_EXCLUDE_TAGS, CARD_SORTER_NOTE_TYPES
 
     CFG = _load_config()
 
@@ -175,149 +106,8 @@ def reload_config() -> None:
     RUN_ON_UI = bool(cfg_get("run_on_ui", True))
     RESTORE_MAIN_WINDOW_GEOMETRY = bool(cfg_get("window_restore.enabled", True))
     GRAPH_PRELOAD_ON_STARTUP = bool(cfg_get("graph.preload_on_startup", False))
-
     STICKY_UNLOCK = bool(cfg_get("sticky_unlock", True))
-    STABILITY_DEFAULT_THRESHOLD = 14.0
-    STABILITY_AGG = "min"
     NOTETYPES_INSTALLED = bool(cfg_get("installer.notetypes_installed", False))
-    MASS_LINKER_ENABLED = bool(cfg_get("mass_linker.enabled", True))
-    MASS_LINKER_RULES = cfg_get("mass_linker.rules", []) or []
-    MASS_LINKER_COPY_LABEL_FIELD = str(
-        cfg_get("mass_linker.label_field", cfg_get("mass_linker.copy_label_field", ""))
-    ).strip()
-
-    FAMILY_GATE_ENABLED = bool(cfg_get("family_gate.enabled", True))
-    FAMILY_LINK_ENABLED = bool(cfg_get("family_gate.link_family_member", False))
-    FAMILY_FIELD = str(cfg_get("family_gate.family.field", "FamilyID"))
-    FAMILY_SEP = str(cfg_get("family_gate.family.separator", ";"))
-    FAMILY_DEFAULT_PRIO = int(cfg_get("family_gate.family.default_prio", 0))
-    FAMILY_NOTE_TYPES = cfg_get("family_gate.note_types", {}) or {}
-
-    CARD_STAGES_ENABLED = bool(cfg_get("card_stages.enabled", True))
-    CARD_STAGES_RUN_ON_SYNC = bool(cfg_get("card_stages.run_on_sync", True))
-    CARD_STAGES_NOTE_TYPES = cfg_get(
-        "card_stages.note_types", cfg_get("family_gate.note_types", {})
-    ) or {}
-
-    EXAMPLE_GATE_ENABLED = bool(cfg_get("example_gate.enabled", True))
-    VOCAB_DECK = str(cfg_get("example_gate.vocab_deck", "")).strip()
-    EXAMPLE_DECK = str(cfg_get("example_gate.example_deck", "")).strip()
-    _example_key = str(
-        cfg_get(
-            "example_gate.key_field",
-            cfg_get("example_gate.example_key_field", cfg_get("example_gate.vocab_key_field", "Vocab")),
-        )
-    ).strip()
-    if not _example_key:
-        _example_key = "Vocab"
-    VOCAB_KEY_FIELD = _example_key
-    EXAMPLE_KEY_FIELD = _example_key
-
-    EX_STAGE_SEP = str(cfg_get("example_gate.example_stage_syntax.separator", "@"))
-    EX_STAGE_DEFAULT = int(cfg_get("example_gate.example_stage_syntax.default_stage", 0))
-
-    EX_APPLY_ALL_CARDS = bool(cfg_get("example_gate.example_action.apply_to_all_cards_in_note", True))
-
-    KEY_NORM = cfg_get("example_gate.key_normalization", {}) or {}
-    KEY_STRIP_HTML = bool(KEY_NORM.get("strip_html", True))
-    KEY_TRIM = bool(KEY_NORM.get("trim", True))
-    KEY_NFC = bool(KEY_NORM.get("unicode_nfc", True))
-    KEY_FIRST_TOKEN = bool(KEY_NORM.get("first_token_only", True))
-    KEY_STRIP_FURIGANA_BR = bool(KEY_NORM.get("strip_furigana_brackets", False))
-
-    KANJI_GATE_ENABLED = bool(cfg_get("kanji_gate.enabled", True))
-    KANJI_GATE_BEHAVIOR = str(cfg_get("kanji_gate.behavior", "kanji_and_components")).strip()
-    if not KANJI_GATE_BEHAVIOR:
-        KANJI_GATE_BEHAVIOR = "kanji_and_components"
-    KANJI_GATE_STABILITY_AGG = "min"
-    KANJI_GATE_VOCAB_NOTE_TYPES = cfg_get("kanji_gate.vocab_note_types", {}) or {}
-    KANJI_GATE_KANJI_NOTE_TYPE = str(cfg_get("kanji_gate.kanji_note_type", "")).strip()
-    fields_raw = cfg_get("kanji_gate.kanji_fields", None)
-    if isinstance(fields_raw, list):
-        KANJI_GATE_KANJI_FIELDS = [str(x).strip() for x in fields_raw if str(x).strip()]
-    else:
-        KANJI_GATE_KANJI_FIELDS = []
-    if not KANJI_GATE_KANJI_FIELDS:
-        legacy_main = str(cfg_get("kanji_gate.kanji_field", "")).strip()
-        legacy_alt = str(cfg_get("kanji_gate.kanji_alt_field", "")).strip()
-        if legacy_main:
-            KANJI_GATE_KANJI_FIELDS.append(legacy_main)
-        if legacy_alt and legacy_alt not in KANJI_GATE_KANJI_FIELDS:
-            KANJI_GATE_KANJI_FIELDS.append(legacy_alt)
-    KANJI_GATE_KANJI_FIELD = KANJI_GATE_KANJI_FIELDS[0] if KANJI_GATE_KANJI_FIELDS else ""
-    KANJI_GATE_KANJI_ALT_FIELD = KANJI_GATE_KANJI_FIELDS[1] if len(KANJI_GATE_KANJI_FIELDS) > 1 else ""
-    KANJI_GATE_COMPONENTS_FIELD = str(cfg_get("kanji_gate.components_field", "")).strip()
-    KANJI_GATE_KANJI_RADICAL_FIELD = str(cfg_get("kanji_gate.kanji_radical_field", "")).strip()
-    KANJI_GATE_RADICAL_NOTE_TYPE = str(cfg_get("kanji_gate.radical_note_type", "")).strip()
-    KANJI_GATE_RADICAL_FIELD = str(cfg_get("kanji_gate.radical_field", "")).strip()
-    KANJI_GATE_KANJI_THRESHOLD = float(
-        cfg_get("kanji_gate.kanji_threshold", 14.0)
-    )
-    KANJI_GATE_COMPONENT_THRESHOLD = 14.0
-
-    CARD_SORTER_ENABLED = bool(cfg_get("card_sorter.enabled", True))
-    CARD_SORTER_RUN_ON_ADD = bool(cfg_get("card_sorter.run_on_add_note", True))
-    CARD_SORTER_RUN_ON_SYNC = bool(cfg_get("card_sorter.run_on_sync", True))
-    CARD_SORTER_EXCLUDE_DECKS = list(cfg_get("card_sorter.exclude_decks", []) or [])
-    CARD_SORTER_EXCLUDE_TAGS = list(cfg_get("card_sorter.exclude_tags", []) or [])
-    CARD_SORTER_NOTE_TYPES = cfg_get("card_sorter.note_types", {}) or {}
-
-    try:
-        from aqt import mw  # type: ignore
-    except Exception:
-        mw = None  # type: ignore
-
-    def _note_type_id_from_ident(col, ident: Any) -> str:
-        if ident is None:
-            return ""
-        s = str(ident).strip()
-        if not s:
-            return ""
-        if s.isdigit():
-            try:
-                mid = int(s)
-            except Exception:
-                return ""
-            return str(mid)
-        try:
-            model = col.models.by_name(s)
-        except Exception:
-            model = None
-        if not model:
-            return s
-        try:
-            return str(int(model.get("id")))
-        except Exception:
-            return s
-
-    def _map_dict_keys(col, raw: dict[str, Any]) -> dict[str, Any]:
-        out: dict[str, Any] = {}
-        for k, v in raw.items():
-            key = _note_type_id_from_ident(col, k)
-            if not key:
-                continue
-            out[key] = v
-        return out
-
-    def _map_list(col, raw: list[Any]) -> list[str]:
-        out: list[str] = []
-        for v in raw:
-            key = _note_type_id_from_ident(col, v)
-            if key:
-                out.append(key)
-        return out
-
-    if mw is not None and getattr(mw, "col", None):
-        col = mw.col
-        if col:
-            FAMILY_NOTE_TYPES = _map_dict_keys(col, FAMILY_NOTE_TYPES)
-            CARD_STAGES_NOTE_TYPES = _map_dict_keys(col, CARD_STAGES_NOTE_TYPES)
-            KANJI_GATE_VOCAB_NOTE_TYPES = _map_dict_keys(col, KANJI_GATE_VOCAB_NOTE_TYPES)
-            CARD_SORTER_NOTE_TYPES = _map_dict_keys(col, CARD_SORTER_NOTE_TYPES)
-            if KANJI_GATE_KANJI_NOTE_TYPE:
-                KANJI_GATE_KANJI_NOTE_TYPE = _note_type_id_from_ident(col, KANJI_GATE_KANJI_NOTE_TYPE)
-            if KANJI_GATE_RADICAL_NOTE_TYPE:
-                KANJI_GATE_RADICAL_NOTE_TYPE = _note_type_id_from_ident(col, KANJI_GATE_RADICAL_NOTE_TYPE)
 
 
 def migrate_legacy_keys() -> bool:
