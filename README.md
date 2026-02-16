@@ -148,6 +148,10 @@ An example card is allowed only if:
 
 (There is no optional stage selection via suffix; example unlocking is driven by stability readiness.)
 
+If mapping cannot be resolved, the module logs grouped diagnostics with reason keys
+(for example `ambiguous_target_card`, `ambiguous_lemma`, `force_nid_not_found`) and
+example note IDs in `nid:reason` format.
+
 ---
 
 ## Kanji Unlocker

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 import json
 import os
 import re
@@ -457,6 +458,32 @@ def _mapping_level(error_msg: str) -> str:
     if msg.startswith("no_vocab_match:"):
         return "info"
     return "warn"
+
+
+def _mapping_reason_key(error_msg: str) -> str:
+    msg = str(error_msg or "").strip()
+    if not msg:
+        return "unknown"
+    head = msg.split(":", 1)[0].strip()
+    return head or "unknown"
+
+
+def _mapping_reason_preview(errors: list[tuple[int, str]], *, limit: int = 5) -> str:
+    if not errors:
+        return ""
+    counts = Counter(_mapping_reason_key(msg) for _nid, msg in errors)
+    top = counts.most_common(max(1, int(limit)))
+    return ", ".join(f"{reason}={count}" for reason, count in top)
+
+
+def _mapping_examples_preview(errors: list[tuple[int, str]], *, limit: int = 8) -> str:
+    if not errors:
+        return ""
+    clipped = errors[: max(1, int(limit))]
+    out = ", ".join(f"{nid}:{_mapping_reason_key(msg)}" for nid, msg in clipped)
+    if len(errors) > len(clipped):
+        out += ", ..."
+    return out
 
 
 def _fugashi_tagger():
@@ -1023,31 +1050,30 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
         counters["example_mapping_warn"] = len(warn_errors)
 
         if info_errors:
-            info_preview = ", ".join(str(x[0]) for x in info_errors[:8])
-            if len(info_errors) > 8:
-                info_preview += ", ..."
+            info_preview = _mapping_examples_preview(info_errors, limit=8)
+            info_reasons = _mapping_reason_preview(info_errors, limit=5)
             log_info(
                 "Example Unlocker mapping info",
                 f"count={len(info_errors)}",
+                f"reasons={info_reasons}",
                 f"examples={info_preview}",
             )
         if warn_errors:
-            warn_preview = ", ".join(str(x[0]) for x in warn_errors[:8])
-            if len(warn_errors) > 8:
-                warn_preview += ", ..."
+            warn_preview = _mapping_examples_preview(warn_errors, limit=8)
+            warn_reasons = _mapping_reason_preview(warn_errors, limit=5)
             log_warn(
                 "Example Unlocker mapping warnings",
                 f"count={len(warn_errors)}",
+                f"reasons={warn_reasons}",
                 f"examples={warn_preview}",
             )
 
-        preview = ", ".join(str(x[0]) for x in mapping_errors[:8])
-        if len(mapping_errors) > 8:
-            preview += ", ..."
+        preview = _mapping_examples_preview(mapping_errors, limit=8)
         if warn_errors:
+            warn_reasons_short = _mapping_reason_preview(warn_errors, limit=3)
             _notify_error(
                 f"Example Unlocker mapping warnings on {len(warn_errors)} notes "
-                f"(plus {len(info_errors)} info cases). "
+                f"(plus {len(info_errors)} info cases). Reasons: {warn_reasons_short}. "
                 f"Examples: {preview}. Use force_nid on affected notes.",
                 reason="mapping",
             )

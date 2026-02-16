@@ -18,6 +18,7 @@
   - Editor fallback keys removed from `_ajpc_graph_api`.
 - 2026-02-16 20:49:00: Restart extracted from debug core into `modules/restart.py`; top-toolbar restart icon is module-owned and always available when module is active.
 - 2026-02-16 21:08:00: Restart helper folder moved from addon root `restart_helper/` into module scope `modules/restart_helper/`; runtime path in `modules/restart.py` was updated accordingly.
+- 2026-02-16 21:17:00: Example Unlocker mapping diagnostics are now reason-grouped in logs (`reason=count`) with `nid:reason` examples for faster root-cause triage.
 
 ## Debug Clarification Status
 - 2026-02-16 19:34:30: No open debug investigation in this change set.

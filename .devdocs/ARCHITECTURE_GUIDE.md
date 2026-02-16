@@ -63,3 +63,4 @@
 ## Runtime Guardrails
 - Config files must be UTF-8 without BOM.
 - Keep migration behavior backward compatible for old config key shapes.
+- Example Unlocker mapping diagnostics must log grouped reason counts plus compact `nid:reason` samples for warn/info mapping summaries.

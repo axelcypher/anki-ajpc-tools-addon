@@ -31,6 +31,7 @@ This file lists only module functions that call logging paths, and which level t
 - `_fugashi_tagger` -> `INFO`, `WARN`
 - `note_ids_for_deck` -> `TRACE`
 - `example_gate_apply` -> `TRACE`, `INFO`, `WARN`
+  - Mapping summaries include reason buckets (`reason=count`) and `nid:reason` examples.
 - `run_example_gate` -> `TRACE`, `INFO`, `WARN`, `ERROR`
 
 ## `modules/family_priority.py`
