@@ -36,3 +36,4 @@
 [2026-02-16 22:31:08] Codex: Added Example Unlocker honorific-key fallback in `modules/example_gate.py` for lemma misses (`御X` <-> `おX`/`ごX`/`X`), wired into both runtime apply and debug diagnose paths.
 [2026-02-16 22:56:54] Codex: Replaced broad Example Unlocker honorific variant fallback in `modules/example_gate.py` with narrow honorific-equivalence (`goX/oX` forms) plus literal cloze-key disambiguation, removed obsolete helper path, and synced docs/changelog/logging references.
 [2026-02-16 23:04:37] Codex: Re-applied the same honorific-equivalence fix after an encoding-side regression, ensured `modules/example_gate.py` only contains the intended logic diff, and kept docs aligned with active behavior.
+[2026-02-16 23:09:08] Codex: Added AGENTS guardrail for mojibake-safe file writes (apply_patch-only for source edits, no shell redirects/Set-Content/Out-File/git-show redirects) and synced AGENTS content with graph companion.
