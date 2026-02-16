@@ -1,8 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
 
 a = Analysis(
-    ['C:\\Users\\tobia\\AppData\\Roaming\\Anki2\\addons21\\ajpc-tools_dev\\restart_helper\\restart_helper.py'],
+    [str(ROOT / "restart_helper.py")],
     pathex=[],
     binaries=[],
     datas=[],

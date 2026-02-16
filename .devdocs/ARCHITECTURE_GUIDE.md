@@ -30,6 +30,7 @@
 - `modules/restart.py`
   - Dedicated Restart module with top-toolbar action lifecycle.
   - Restart is no longer part of `core/debug.py`.
+  - Restart helper runtime artifacts are colocated at `modules/restart_helper/*`.
 - `modules/_widgets/deck_stats_registry.py`
   - Neutral deck-stats provider registry.
   - Feature modules register provider callbacks; renderer module (`onigiri_widgets`) stays decoupled from module internals.

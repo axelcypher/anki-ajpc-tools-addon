@@ -1,7 +1,7 @@
 /__pycache__/
 */__pycache__/
 /build/
-/restart_helper/build/
+/modules/restart_helper/build/
 /dist/
 /.vscode/
 /.devdocs/*

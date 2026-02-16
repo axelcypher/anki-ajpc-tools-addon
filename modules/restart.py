@@ -93,7 +93,7 @@ def _build_target_cmd() -> list[str]:
 
 
 def _restart_helper_cmd(target_cmd: list[str], delay_seconds: int) -> list[str]:
-    helper_dir = os.path.join(config.ADDON_DIR, "restart_helper")
+    helper_dir = os.path.join(config.ADDON_DIR, "modules", "restart_helper")
     helper_exe = os.path.join(helper_dir, "ajpc_restart_helper.exe")
     helper_py = os.path.join(helper_dir, "restart_helper.py")
     cmd: list[str]
@@ -125,7 +125,7 @@ def _restart_helper_cmd(target_cmd: list[str], delay_seconds: int) -> list[str]:
 
 
 def _restart_helper_cmd_py_fallback(target_cmd: list[str], delay_seconds: int) -> list[str]:
-    helper_dir = os.path.join(config.ADDON_DIR, "restart_helper")
+    helper_dir = os.path.join(config.ADDON_DIR, "modules", "restart_helper")
     helper_py = os.path.join(helper_dir, "restart_helper.py")
     if not os.path.exists(helper_py):
         return []
@@ -208,7 +208,7 @@ def _delayed_restart_anki() -> None:
             logging.warn("restart click: helper start failed", source="restart")
             showInfo(
                 "Failed to start restart helper.\n"
-                "Expected: restart_helper/ajpc_restart_helper.exe"
+                "Expected: modules/restart_helper/ajpc_restart_helper.exe"
             )
             return
 
@@ -272,4 +272,3 @@ MODULE = ModuleSpec(
     order=12,
     init=_init,
 )
-

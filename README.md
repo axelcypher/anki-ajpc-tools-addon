@@ -279,6 +279,7 @@ The add-on uses a split config architecture:
 - Fixed architecture components live in `core/*.py` (`general`, `info`, `debug`) and are not part of dynamic module discovery.
 - Feature modules in `modules/*.py` own their own runtime config proxies and module-specific keys.
 - Link-Core-owned helpers live in `modules/_link_core/*` and are initialized through `modules/link_core.py`.
+- Restart helper runtime assets are colocated under `modules/restart_helper/*` and consumed by `modules/restart.py`.
 - Deck progress widgets use a neutral provider registry (`modules/_widgets/deck_stats_registry.py`) so gate modules register stats without direct cross-imports.
 - Family module namespace is hard-cut to `family_priority.*` (legacy `family_gate.*` keys are not read).
 

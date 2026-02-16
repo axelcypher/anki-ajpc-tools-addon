@@ -85,6 +85,7 @@ This file lists only module functions that call logging paths, and which level t
 - `_build_target_cmd` -> `DEBUG`
 - `_start_restart_helper` -> `DEBUG`, `WARN`, `ERROR`
 - `_delayed_restart_anki` -> `DEBUG`, `WARN`, `ERROR`
+- Helper lookup path: `modules/restart_helper/*` (was root `restart_helper/*`).
 
 ## `modules/_link_core/browser_graph.py`
 - `_show_note_in_ajpc_graph` -> `DEBUG`, `WARN`

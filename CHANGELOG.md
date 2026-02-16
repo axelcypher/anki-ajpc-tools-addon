@@ -21,7 +21,7 @@
 ### Fixes
 - Removed UTF-8 BOM from `config.py` and `config_migrations.py` to comply with Anki config-loader guardrail.
 - Removed obsolete debug setting `debug.show_restart_button`.
-- Removed tracked restart build artifacts from version control and ignored `restart_helper/build/`.
+- Removed tracked restart build artifacts from version control and ignored `modules/restart_helper/build/`.
 
 ## 1.0.0-beta.1 - 2026-02-14
 
