@@ -678,7 +678,7 @@ def _lemma_from_surface(surface: str) -> tuple[str, str]:
     tok = None
     if len(tokens) == 1:
         tok = tokens[0]
-    elif len(tokens) == 2 and _token_is_verb_or_adj(tokens[0]):
+    elif 2 <= len(tokens) <= 3 and _token_is_verb_or_adj(tokens[0]):
         tok = tokens[0]
     else:
         return s, "ambiguous_tokenization"
@@ -711,7 +711,7 @@ def _reading_from_surface(surface: str) -> str:
     tok = None
     if len(tokens) == 1:
         tok = tokens[0]
-    elif len(tokens) == 2 and _token_is_verb_or_adj(tokens[0]):
+    elif 2 <= len(tokens) <= 3 and _token_is_verb_or_adj(tokens[0]):
         tok = tokens[0]
     else:
         return ""

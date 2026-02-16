@@ -20,3 +20,4 @@
 - 2026-02-16 23:23:43: Example Unlocker reading-index fallback (`VocabReading` normalized) added in matching pipeline (runtime only); no CSS classes/ids/layout styling contracts changed.
 - 2026-02-16 23:33:13: Example Unlocker strict suru-verb fallback added in matching pipeline (runtime only); no CSS classes/ids/layout styling contracts changed.
 - 2026-02-16 23:45:34: Example Unlocker settings UI now includes `Reading fallback field` (QLineEdit); Qt-only row addition, no CSS selector/id contract changes.
+- 2026-02-16 23:54:19: Example Unlocker tokenization acceptance for verb/adjective forms increased to 3 tokens (runtime matching only); no CSS classes/ids/layout styling contracts changed.

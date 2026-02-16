@@ -29,6 +29,7 @@
 - 2026-02-16 23:23:43: Example Unlocker now includes a normalized reading fallback (`VocabReading` index) for unresolved lemma/canonicalization cases; fallback selection is guarded by key/literal checks and may report `ambiguous_reading:<reading>`.
 - 2026-02-16 23:33:13: Example Unlocker now adds a strict `suru`-verb fallback for ambiguous-tokenization forms (`...します` -> `...する`), and only accepts candidates explicitly marked as `suru` verbs.
 - 2026-02-16 23:45:34: Example Unlocker reading fallback source field is now configurable via `example_gate.reading_field` (Settings label `Reading fallback field`; default `VocabReading`).
+- 2026-02-16 23:54:19: Example Unlocker now accepts up to 3 tokens (verb/adjective leading token) in lemma/reading extraction before returning `ambiguous_tokenization`.
 
 ## Debug Clarification Status
 - 2026-02-16 19:34:30: No open debug investigation in this change set.

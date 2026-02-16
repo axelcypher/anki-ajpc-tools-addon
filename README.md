@@ -175,6 +175,8 @@ The fallback reading field is configurable via `example_gate.reading_field`
 For `suru` verb forms that tokenize ambiguously (for example `残業します`),
 the resolver adds a strict `...する` fallback and only accepts candidates that
 are explicitly typed as `suru` verbs in runtime form metadata.
+Verb/adjective token handling now also accepts up to 3 tokens (instead of only 2)
+before returning `ambiguous_tokenization`.
 
 ### Mapping debug lookup (Settings)
 
