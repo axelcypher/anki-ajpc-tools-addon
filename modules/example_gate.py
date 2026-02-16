@@ -939,6 +939,29 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
     return vocab_by_key, vocab_by_nid, surface_index
 
 
+def _split_honorific_prefix(s: str) -> tuple[str, str]:
+    txt = norm_text(s or "")
+    if len(txt) >= 2 and txt[0] in ("\u5fa1", "\u304a", "\u3054"):
+        return txt[0], txt[1:]
+    return "", txt
+
+
+def _is_honorific_equivalent(a: str, b: str) -> bool:
+    left = norm_text(a or "")
+    right = norm_text(b or "")
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    p1, s1 = _split_honorific_prefix(left)
+    p2, s2 = _split_honorific_prefix(right)
+    if not s1 or not s2 or s1 != s2:
+        return False
+    if (p1 == "\u5fa1" and p2 in ("\u304a", "\u3054")) or (p2 == "\u5fa1" and p1 in ("\u304a", "\u3054")):
+        return True
+    return False
+
+
 def _resolve_target_cids(
     entry: "VocabIndexEntry",
     *,
@@ -946,7 +969,7 @@ def _resolve_target_cids(
     lemma: str,
     surface_index: dict[str, list["SurfaceCandidate"]],
 ) -> tuple[list[int], str | None]:
-    cloze_eq_lemma = bool(cloze_surface and lemma and cloze_surface == lemma)
+    cloze_eq_lemma = bool(cloze_surface and lemma and _is_honorific_equivalent(cloze_surface, lemma))
     if cloze_eq_lemma and len(entry.lemma_cids) in (1, 2):
         return list(entry.lemma_cids), None
 
@@ -960,68 +983,6 @@ def _resolve_target_cids(
     if len(entry.candidate_cids) in (1, 2):
         return list(entry.candidate_cids), None
     return [], f"ambiguous_target_card:{entry.nid}"
-
-
-def _honorific_key_candidates(lemma: str, cloze_surface: str) -> list[str]:
-    out: list[str] = []
-
-    def _add(s: str) -> None:
-        val = norm_text(s or "")
-        if val and val not in out:
-            out.append(val)
-
-    def _variants(base: str) -> None:
-        txt = norm_text(base or "")
-        if not txt:
-            return
-        _add(txt)
-        if len(txt) >= 2 and txt.startswith("御"):
-            stem = txt[1:]
-            _add("お" + stem)
-            _add("ご" + stem)
-            _add(stem)
-        if len(txt) >= 2 and (txt.startswith("お") or txt.startswith("ご")):
-            stem = txt[1:]
-            _add("御" + stem)
-            _add(stem)
-
-    _variants(lemma)
-    _variants(cloze_surface)
-    return out
-
-
-def _resolve_honorific_lookup(
-    *,
-    vocab_by_key: dict[str, list["VocabIndexEntry"]],
-    lemma: str,
-    cloze_surface: str,
-    cloze_surface_literal: str,
-) -> tuple["VocabIndexEntry | None", str]:
-    keys = _honorific_key_candidates(lemma, cloze_surface)
-    if not keys:
-        return None, ""
-
-    entries: list[VocabIndexEntry] = []
-    seen_nids: set[int] = set()
-    for key in keys:
-        for cand in vocab_by_key.get(key, []):
-            if cand.nid in seen_nids:
-                continue
-            seen_nids.add(cand.nid)
-            entries.append(cand)
-
-    if len(entries) == 1:
-        return entries[0], keys[0]
-
-    if len(entries) > 1:
-        literal_hits = [
-            cand for cand in entries
-            if cand.key_literal and cand.key_literal == cloze_surface_literal
-        ]
-        if len(literal_hits) == 1:
-            return literal_hits[0], keys[0]
-
-    return None, ""
 
 
 def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any]:
@@ -1101,17 +1062,29 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
                 out["related_nids"] = sorted(related_nids)
                 return out
         else:
-            honorific_entry, lookup_key = _resolve_honorific_lookup(
-                vocab_by_key=vocab_by_key,
-                lemma=lemma,
-                cloze_surface=cloze_surface,
-                cloze_surface_literal=cloze_surface_literal,
-            )
-            if honorific_entry is not None:
-                entry = honorific_entry
-                reason = f"lemma:{lemma_status}:honorific"
-                out["lookup_term"] = lookup_key or lemma
-            else:
+            if _is_honorific_equivalent(lemma, cloze_surface):
+                by_cloze = vocab_by_key.get(cloze_surface, [])
+                if len(by_cloze) == 1:
+                    entry = by_cloze[0]
+                    reason = f"lemma:{lemma_status}:honorific_equiv"
+                    out["lookup_term"] = cloze_surface
+                elif len(by_cloze) > 1:
+                    literal_hits = [
+                        cand for cand in by_cloze
+                        if cand.key_literal and cand.key_literal == cloze_surface_literal
+                    ]
+                    if len(literal_hits) == 1:
+                        entry = literal_hits[0]
+                        reason = f"lemma:{lemma_status}:honorific_equiv:literal"
+                        out["lookup_term"] = cloze_surface
+                    else:
+                        for cand in by_cloze:
+                            related_nids.add(int(cand.nid))
+                        out["error"] = f"ambiguous_lemma:{cloze_surface}"
+                        out["related_nids"] = sorted(related_nids)
+                        return out
+
+            if entry is None:
                 surface_hits = surface_index.get(cloze_surface, [])
                 uniq_nids = sorted({h.nid for h in surface_hits})
                 related_nids.update(int(x) for x in uniq_nids)
@@ -1260,16 +1233,24 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
                         mapping_errors.append((int(nid), f"ambiguous_lemma:{lemma}"))
                         continue
                 else:
-                    honorific_entry, lookup_key = _resolve_honorific_lookup(
-                        vocab_by_key=vocab_by_key,
-                        lemma=lemma,
-                        cloze_surface=cloze_surface,
-                        cloze_surface_literal=cloze_surface_literal,
-                    )
-                    if honorific_entry is not None:
-                        entry = honorific_entry
-                        reason = f"lemma:{lemma_status}:honorific:{lookup_key or lemma}"
-                    else:
+                    if _is_honorific_equivalent(lemma, cloze_surface):
+                        by_cloze = vocab_by_key.get(cloze_surface, [])
+                        if len(by_cloze) == 1:
+                            entry = by_cloze[0]
+                            reason = f"lemma:{lemma_status}:honorific_equiv"
+                        elif len(by_cloze) > 1:
+                            literal_hits = [
+                                cand for cand in by_cloze
+                                if cand.key_literal and cand.key_literal == cloze_surface_literal
+                            ]
+                            if len(literal_hits) == 1:
+                                entry = literal_hits[0]
+                                reason = f"lemma:{lemma_status}:honorific_equiv:literal"
+                            else:
+                                mapping_errors.append((int(nid), f"ambiguous_lemma:{cloze_surface}"))
+                                continue
+
+                    if entry is None:
                         surface_hits = surface_index.get(cloze_surface, [])
                         uniq_nids = sorted({h.nid for h in surface_hits})
                         if len(uniq_nids) == 1:

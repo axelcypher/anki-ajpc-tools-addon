@@ -164,8 +164,9 @@ When multiple lemma candidates exist, the module now tries a literal cloze-key
 disambiguation first (for example `五[ご]` vs `五[いつ]`) before emitting `ambiguous_lemma`.
 Spacing inserted before kanji for furigana parsing is normalized away on both sides
 (cloze extraction and vocab key indexing) before matching.
-If lemma lookup misses in kana+kanji honorific forms, the resolver also tries
-honorific variants (`御X`, `おX`, `ごX`, `X`) before reporting `no_vocab_match`.
+If lemma and cloze differ only by honorific prefix form (`御X` vs `おX`/`ごX`),
+the resolver treats them as honorific-equivalent and retries via cloze-key
+lookup (with literal disambiguation) before `no_vocab_match`.
 
 ### Mapping debug lookup (Settings)
 

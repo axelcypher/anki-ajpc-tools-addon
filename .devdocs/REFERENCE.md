@@ -25,7 +25,7 @@
 - 2026-02-16 22:08:00: Example Unlocker lemma path now includes a single-kanji guard (`single_kanji_surface_guard`) to avoid semantic remaps between distinct single CJK ideographs.
 - 2026-02-16 22:16:00: Example Unlocker ambiguous-lemma handling now performs a literal cloze-to-key disambiguation pass (`key_literal`) before returning `ambiguous_lemma`.
 - 2026-02-16 22:26:00: Example Unlocker now normalizes furigana parser spacing before kanji/`[` on both cloze extraction and vocab-key indexing paths to avoid spacing-induced first-token truncation.
-- 2026-02-16 22:34:00: Example Unlocker lemma-miss fallback now tries honorific key variants (`御X`, `おX`, `ごX`, `X`) before emitting `no_vocab_match`.
+- 2026-02-16 22:56:54: Example Unlocker honorific handling was narrowed to honorific-equivalent lemma/cloze reconciliation (`御X` <-> `おX`/`ごX`) with cloze-key + literal disambiguation; broad variant fallback was removed.
 
 ## Debug Clarification Status
 - 2026-02-16 19:34:30: No open debug investigation in this change set.

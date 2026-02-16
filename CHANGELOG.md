@@ -30,7 +30,7 @@
 - Added single-kanji lemma guard in Example Unlocker to prevent semantic remaps like `歳 -> 年` from overriding the original surface lookup term.
 - Added Example Unlocker literal key disambiguation for ambiguous lemma matches (uses raw cloze text, e.g. `五[ご]` vs `五[いつ]`, before failing with `ambiguous_lemma`).
 - Normalized furigana parser spacing before kanji on both cloze and vocab-key paths in Example Unlocker to avoid false first-token truncation (e.g. `お 洒落[...]` -> `お洒落[...]` for matching).
-- Added honorific fallback key lookup in Example Unlocker (`御X` <-> `おX`/`ごX`/`X`) for lemma misses like `御洒落` vs `お洒落`.
+- Replaced broad honorific variant fallback in Example Unlocker with narrow honorific-equivalence handling (`御X` <-> `おX`/`ごX`) plus cloze-literal disambiguation to avoid false ambiguous matches.
 
 ## 1.0.0-beta.1 - 2026-02-14
 

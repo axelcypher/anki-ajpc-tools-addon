@@ -37,7 +37,7 @@ This file lists only module functions that call logging paths, and which level t
   - Lemma normalization may emit `lemma:single_kanji_surface_guard` in match reason contexts.
   - Ambiguous lemma handling may emit `lemma:<status>:literal` when literal cloze-key disambiguation succeeds.
   - Cloze/vocab match normalization now strips parser-required whitespace before kanji/`[` prior to matching.
-  - Honorific lemma miss fallback may emit reason suffix `:honorific` (or `:honorific:<key>` in debug traces).
+  - Honorific-equivalent reconciliation may emit reason suffix `:honorific_equiv` (and `:honorific_equiv:literal` after literal cloze-key disambiguation).
 - `_build_settings` -> `INFO`
   - Emits `Example Unlocker mapping lookup` with `nid`, `ok`, `lemma`, `reason`, `target_cids`, `error`, and `elapsed_ms`.
 - `run_example_gate` -> `TRACE`, `INFO`, `WARN`, `ERROR`
