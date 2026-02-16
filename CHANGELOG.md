@@ -27,6 +27,7 @@
 - Tightened Family Priority family lookup logging: single query-attempt failures now log `WARN`, and only full fallback failure logs `ERROR`.
 - Improved Example Unlocker mapping diagnostics: warning/info summaries now include reason buckets and `nid:reason` examples.
 - Example Unlocker target-card resolution now supports up to 2 matched cards and requires threshold pass on all matched targets; added `data-lemma` marker preference for `cloze == lemma` cases.
+- Added single-kanji lemma guard in Example Unlocker to prevent semantic remaps like `歳 -> 年` from overriding the original surface lookup term.
 
 ## 1.0.0-beta.1 - 2026-02-14
 

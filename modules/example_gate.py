@@ -568,7 +568,17 @@ def _lemma_from_surface(surface: str) -> tuple[str, str]:
     lemma = str(lemma or "").strip()
     if not lemma or lemma == "*":
         lemma = str(getattr(tok, "surface", "") or "").strip()
-    return norm_text(lemma), "ok"
+    lemma_norm = norm_text(lemma)
+    # Guard single-kanji examples from semantic lemma remaps (e.g., 歳 -> 年).
+    if (
+        len(s) == 1
+        and len(lemma_norm) == 1
+        and s != lemma_norm
+        and "\u3400" <= s <= "\u9fff"
+        and "\u3400" <= lemma_norm <= "\u9fff"
+    ):
+        return s, "single_kanji_surface_guard"
+    return lemma_norm, "ok"
 
 
 def _template_ord_form_markers(mid: int) -> dict[int, str | None]:

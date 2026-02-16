@@ -34,6 +34,7 @@ This file lists only module functions that call logging paths, and which level t
 - `example_gate_apply` -> `TRACE`, `INFO`, `WARN`
   - Mapping summaries include reason buckets (`reason=count`) and `nid:reason` examples.
   - Target-card resolution now accepts 1-2 CIDs; debug trace includes `target_cids=[...]` and stability arrays.
+  - Lemma normalization may emit `lemma:single_kanji_surface_guard` in match reason contexts.
 - `_build_settings` -> `INFO`
   - Emits `Example Unlocker mapping lookup` with `nid`, `ok`, `lemma`, `reason`, `target_cids`, `error`, and `elapsed_ms`.
 - `run_example_gate` -> `TRACE`, `INFO`, `WARN`, `ERROR`

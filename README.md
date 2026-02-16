@@ -158,6 +158,8 @@ example note IDs in `nid:reason` format.
 Target-card resolution now allows up to **2** matched cards for one example. In that case,
 unlocking requires that **both** target cards meet the configured threshold. For `cloze == lemma`,
 cards marked with `data-lemma` are preferred for this resolution path.
+Additionally, single-kanji cloze surfaces are protected from semantic lemma remaps
+(for example `歳 -> 年`) by falling back to the original surface as lookup term.
 
 ### Mapping debug lookup (Settings)
 
