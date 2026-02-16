@@ -381,10 +381,12 @@ def _verify_suspended(col: Collection, cids: list[int], *, label: str) -> None:
 
 _FORM_VERB_RE = re.compile(r"data-conjugate-(?!adj-)([A-Za-z][A-Za-z0-9_-]*)", re.IGNORECASE)
 _FORM_ADJ_RE = re.compile(r"data-conjugate-adj-([A-Za-z][A-Za-z0-9_-]*)", re.IGNORECASE)
+_FORM_LEMMA_RE = re.compile(r"\bdata-lemma\b", re.IGNORECASE)
 _DATA_READING_RE = re.compile(r"<[^>]*data-reading[^>]*>(.*?)</[^>]+>", re.IGNORECASE | re.DOTALL)
 _DATA_TYPE_RE = re.compile(r'data-type\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
 
 _MODEL_FORM_MARKER_CACHE: dict[int, dict[int, str | None]] = {}
+_MODEL_LEMMA_MARKER_CACHE: dict[int, dict[int, bool]] = {}
 _CARD_RUNTIME_CACHE: dict[int, tuple[str, str] | None] = {}
 _FUGASHI_TAGGER = None
 _FUGASHI_READY = False
@@ -602,6 +604,32 @@ def _template_ord_form_markers(mid: int) -> dict[int, str | None]:
     return out
 
 
+def _template_ord_lemma_markers(mid: int) -> dict[int, bool]:
+    cached = _MODEL_LEMMA_MARKER_CACHE.get(mid)
+    if cached is not None:
+        return cached
+    out: dict[int, bool] = {}
+    if mw is None or not getattr(mw, "col", None):
+        _MODEL_LEMMA_MARKER_CACHE[mid] = out
+        return out
+    try:
+        model = mw.col.models.get(int(mid))
+    except Exception:
+        model = None
+    if not model or not isinstance(model, dict):
+        _MODEL_LEMMA_MARKER_CACHE[mid] = out
+        return out
+    tmpls = model.get("tmpls", []) or []
+    for idx, t in enumerate(tmpls):
+        if not isinstance(t, dict):
+            out[idx] = False
+            continue
+        blob = f"{str(t.get('qfmt') or '')}\n{str(t.get('afmt') or '')}"
+        out[idx] = bool(_FORM_LEMMA_RE.search(blob))
+    _MODEL_LEMMA_MARKER_CACHE[mid] = out
+    return out
+
+
 def _card_runtime_data(card) -> tuple[str, str] | None:
     cid = int(getattr(card, "id", 0) or 0)
     if cid and cid in _CARD_RUNTIME_CACHE:
@@ -815,6 +843,7 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
     dict[str, list["SurfaceCandidate"]],
 ]:
     _MODEL_FORM_MARKER_CACHE.clear()
+    _MODEL_LEMMA_MARKER_CACHE.clear()
     _CARD_RUNTIME_CACHE.clear()
 
     vocab_nids = note_ids_for_deck(col, config.VOCAB_DECK)
@@ -836,8 +865,12 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
                 continue
 
             marker_map = _template_ord_form_markers(nt_id)
+            lemma_map = _template_ord_lemma_markers(nt_id)
             candidate_cids: list[int] = []
+            lemma_cids: list[int] = []
             for card in note.cards():
+                if lemma_map.get(int(card.ord), False):
+                    lemma_cids.append(int(card.id))
                 marker = marker_map.get(int(card.ord), None)
                 if not marker:
                     continue
@@ -857,6 +890,7 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
                 key=key,
                 note_type_id=nt_id,
                 candidate_cids=sorted(set(candidate_cids)),
+                lemma_cids=sorted(set(lemma_cids)),
             )
             vocab_by_key.setdefault(key, []).append(entry)
             vocab_by_nid[int(nid)] = entry
@@ -876,6 +910,29 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
     return vocab_by_key, vocab_by_nid, surface_index
 
 
+def _resolve_target_cids(
+    entry: "VocabIndexEntry",
+    *,
+    cloze_surface: str,
+    lemma: str,
+    surface_index: dict[str, list["SurfaceCandidate"]],
+) -> tuple[list[int], str | None]:
+    cloze_eq_lemma = bool(cloze_surface and lemma and cloze_surface == lemma)
+    if cloze_eq_lemma and len(entry.lemma_cids) in (1, 2):
+        return list(entry.lemma_cids), None
+
+    surface_hits = [h for h in surface_index.get(cloze_surface, []) if h.nid == entry.nid]
+    uniq_cids = sorted({h.cid for h in surface_hits})
+    if len(uniq_cids) in (1, 2):
+        return uniq_cids, None
+    if len(uniq_cids) > 2:
+        return [], f"ambiguous_card_for_surface:{cloze_surface}"
+
+    if len(entry.candidate_cids) in (1, 2):
+        return list(entry.candidate_cids), None
+    return [], f"ambiguous_target_card:{entry.nid}"
+
+
 def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any]:
     out: dict[str, Any] = {
         "ok": False,
@@ -888,6 +945,7 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
         "match_reason": "",
         "target_vocab_nid": None,
         "target_cid": None,
+        "target_cids": [],
         "error": "",
         "related_nids": [int(nid)],
     }
@@ -925,7 +983,6 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
     vocab_by_key, vocab_by_nid, surface_index = _build_vocab_mapping_indices(col)
 
     entry: VocabIndexEntry | None = None
-    target_cid: int | None = None
     reason = ""
 
     if force_nid is not None:
@@ -953,36 +1010,29 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
             if len(uniq_nids) == 1:
                 entry = vocab_by_nid.get(uniq_nids[0])
                 if entry:
-                    uniq_cids = sorted({h.cid for h in surface_hits if h.nid == entry.nid})
-                    if len(uniq_cids) == 1:
-                        target_cid = uniq_cids[0]
-                    elif len(uniq_cids) > 1:
-                        out["error"] = f"ambiguous_card_for_surface:{cloze_surface}"
-                        out["related_nids"] = sorted(related_nids)
-                        return out
                     reason = "surface_match"
             if entry is None:
                 out["error"] = f"no_vocab_match:{cloze_surface}"
                 out["related_nids"] = sorted(related_nids)
                 return out
 
-    if target_cid is None:
-        surface_hits = [h for h in surface_index.get(cloze_surface, []) if h.nid == entry.nid]
-        uniq_cids = sorted({h.cid for h in surface_hits})
-        if len(uniq_cids) == 1:
-            target_cid = uniq_cids[0]
-        elif len(entry.candidate_cids) == 1:
-            target_cid = entry.candidate_cids[0]
-        else:
-            out["error"] = f"ambiguous_target_card:{entry.nid}"
-            related_nids.add(int(entry.nid))
-            out["related_nids"] = sorted(related_nids)
-            return out
+    target_cids, target_err = _resolve_target_cids(
+        entry,
+        cloze_surface=cloze_surface,
+        lemma=lemma,
+        surface_index=surface_index,
+    )
+    if target_err:
+        out["error"] = target_err
+        related_nids.add(int(entry.nid))
+        out["related_nids"] = sorted(related_nids)
+        return out
 
     related_nids.add(int(entry.nid))
     out["match_reason"] = reason
     out["target_vocab_nid"] = int(entry.nid)
-    out["target_cid"] = int(target_cid)
+    out["target_cids"] = [int(x) for x in target_cids]
+    out["target_cid"] = int(target_cids[0]) if target_cids else None
     out["ok"] = True
     out["related_nids"] = sorted(related_nids)
     return out
@@ -1010,6 +1060,7 @@ class VocabIndexEntry:
     key: str
     note_type_id: int
     candidate_cids: list[int]
+    lemma_cids: list[int]
 
 
 @dataclass(frozen=True)
@@ -1074,7 +1125,6 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
             lemma, lemma_status = _lemma_from_surface(cloze_surface)
 
             entry: VocabIndexEntry | None = None
-            target_cid: int | None = None
             reason = ""
 
             if force_nid is not None:
@@ -1097,39 +1147,43 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
                     if len(uniq_nids) == 1:
                         entry = vocab_by_nid.get(uniq_nids[0])
                         if entry:
-                            uniq_cids = sorted({h.cid for h in surface_hits if h.nid == entry.nid})
-                            if len(uniq_cids) == 1:
-                                target_cid = uniq_cids[0]
-                            elif len(uniq_cids) > 1:
-                                mapping_errors.append((int(nid), f"ambiguous_card_for_surface:{cloze_surface}"))
-                                continue
                             reason = "surface_match"
                     if entry is None:
                         mapping_errors.append((int(nid), f"no_vocab_match:{cloze_surface}"))
                         continue
 
-            if target_cid is None:
-                surface_hits = [h for h in surface_index.get(cloze_surface, []) if h.nid == entry.nid]
-                uniq_cids = sorted({h.cid for h in surface_hits})
-                if len(uniq_cids) == 1:
-                    target_cid = uniq_cids[0]
-                elif len(entry.candidate_cids) == 1:
-                    target_cid = entry.candidate_cids[0]
-                else:
-                    mapping_errors.append((int(nid), f"ambiguous_target_card:{entry.nid}"))
-                    continue
-
-            try:
-                target_card = col.get_card(int(target_cid))
-            except Exception:
-                mapping_errors.append((int(nid), f"target_card_missing:{target_cid}"))
+            target_cids, target_err = _resolve_target_cids(
+                entry,
+                cloze_surface=cloze_surface,
+                lemma=lemma,
+                surface_index=surface_index,
+            )
+            if target_err:
+                mapping_errors.append((int(nid), target_err))
                 continue
 
-            stab_val = card_stability(target_card)
-            allow = bool(stab_val is not None and stab_val >= float(config.EXAMPLE_THRESHOLD))
-            ex_tag = example_target_tag(int(target_cid))
-            is_sticky = config.STICKY_UNLOCK and (ex_tag in note.tags)
-            reason = f"{reason} stab={stab_val} thr={float(config.EXAMPLE_THRESHOLD)}"
+            target_cards = []
+            missing_cids: list[int] = []
+            for tcid in target_cids:
+                try:
+                    target_cards.append(col.get_card(int(tcid)))
+                except Exception:
+                    missing_cids.append(int(tcid))
+            if missing_cids:
+                mapping_errors.append((int(nid), f"target_card_missing:{','.join(str(x) for x in missing_cids)}"))
+                continue
+
+            stab_vals = [card_stability(card) for card in target_cards]
+            allow = bool(
+                stab_vals
+                and all((sv is not None and sv >= float(config.EXAMPLE_THRESHOLD)) for sv in stab_vals)
+            )
+            ex_tags = [example_target_tag(int(tcid)) for tcid in target_cids]
+            is_sticky = bool(config.STICKY_UNLOCK and ex_tags and all(tag in note.tags for tag in ex_tags))
+            reason = (
+                f"{reason} stab={stab_vals} thr={float(config.EXAMPLE_THRESHOLD)} "
+                f"target_cids={target_cids}"
+            )
 
             if config.EX_APPLY_ALL_CARDS:
                 cids = [c.id for c in note.cards()]
@@ -1144,17 +1198,40 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
             if should_allow:
                 to_unsuspend.extend(cids)
                 if config.DEBUG and i < 50:
-                    dbg("example_gate: UNSUSP", nid, cloze_surface, "target_cid=", target_cid, "sticky=", is_sticky, reason)
+                    dbg(
+                        "example_gate: UNSUSP",
+                        nid,
+                        cloze_surface,
+                        "target_cids=",
+                        target_cids,
+                        "sticky=",
+                        is_sticky,
+                        reason,
+                    )
 
-                if config.STICKY_UNLOCK and allow and ex_tag not in note.tags:
+                if config.STICKY_UNLOCK and allow:
                     note.add_tag(DEFAULT_STICKY_TAG_BASE)
-                    note.add_tag(ex_tag)
-                    note.flush()
-                    counters["example_notes_tagged"] += 1
+                    added_any = False
+                    for ex_tag in ex_tags:
+                        if ex_tag not in note.tags:
+                            note.add_tag(ex_tag)
+                            added_any = True
+                    if added_any:
+                        note.flush()
+                        counters["example_notes_tagged"] += 1
             else:
                 to_suspend.extend(cids)
                 if config.DEBUG and i < 50:
-                    dbg("example_gate: SUSP", nid, cloze_surface, "target_cid=", target_cid, "sticky=", is_sticky, reason)
+                    dbg(
+                        "example_gate: SUSP",
+                        nid,
+                        cloze_surface,
+                        "target_cids=",
+                        target_cids,
+                        "sticky=",
+                        is_sticky,
+                        reason,
+                    )
 
             if i % 250 == 0:
                 ui_set(
@@ -1444,7 +1521,7 @@ def _build_settings(ctx):
         lookup_term = str(result.get("lookup_term", "") or "")
         reason = str(result.get("match_reason", "") or "")
         target_vocab_nid = result.get("target_vocab_nid")
-        target_cid = result.get("target_cid")
+        target_cids = [int(x) for x in (result.get("target_cids") or []) if int(x) > 0]
         err = str(result.get("error", "") or "")
         related_nids = [int(x) for x in (result.get("related_nids") or []) if int(x) > 0]
 
@@ -1460,7 +1537,7 @@ def _build_settings(ctx):
             f"Abgleichsbegriff: {lookup_term or '-'}",
             f"Match reason: {reason or '-'}",
             f"Target vocab NID: {target_vocab_nid if target_vocab_nid is not None else '-'}",
-            f"Target card CID: {target_cid if target_cid is not None else '-'}",
+            f"Target card CIDs: {', '.join(str(x) for x in target_cids) if target_cids else '-'}",
             f"Error: {err or '-'}",
             f"Related notes: {', '.join(str(x) for x in related_nids) if related_nids else '-'}",
         ]
@@ -1498,6 +1575,7 @@ def _build_settings(ctx):
             f"ok={bool(result.get('ok'))}",
             f"lemma={result.get('lemma', '')}",
             f"reason={result.get('match_reason', '')}",
+            f"target_cids={result.get('target_cids', [])}",
             f"error={result.get('error', '')}",
             f"elapsed_ms={elapsed_ms}",
         )

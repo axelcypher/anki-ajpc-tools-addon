@@ -12,3 +12,4 @@
 - 2026-02-16 21:17:00: Example Unlocker mapping diagnostics were expanded (runtime/logging only); no CSS classes/ids/layout styling contracts changed.
 - 2026-02-16 21:33:00: Example Unlocker settings received a new Qt row (`Mapping debug`) with inline NID input + Search button and popup actions; this is Qt-widget layout only, no CSS selector/id contract changes.
 - 2026-02-16 21:40:00: Family Priority fallback logging behavior adjusted (warn-vs-error split); no CSS classes/ids/layout styling contracts changed.
+- 2026-02-16 21:55:00: Example Unlocker target-card resolution was updated for up-to-2 targets plus `data-lemma` preference; no CSS classes/ids/layout styling contracts changed.

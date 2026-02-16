@@ -155,6 +155,10 @@ If mapping cannot be resolved, the module logs grouped diagnostics with reason k
 (for example `ambiguous_target_card`, `ambiguous_lemma`, `force_nid_not_found`) and
 example note IDs in `nid:reason` format.
 
+Target-card resolution now allows up to **2** matched cards for one example. In that case,
+unlocking requires that **both** target cards meet the configured threshold. For `cloze == lemma`,
+cards marked with `data-lemma` are preferred for this resolution path.
+
 ### Mapping debug lookup (Settings)
 
 In the **Example Unlocker** settings tab, there is a dedicated **Mapping debug** row:

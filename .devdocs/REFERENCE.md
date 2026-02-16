@@ -21,6 +21,7 @@
 - 2026-02-16 21:17:00: Example Unlocker mapping diagnostics are now reason-grouped in logs (`reason=count`) with `nid:reason` examples for faster root-cause triage.
 - 2026-02-16 21:33:00: Example Unlocker settings now include NID-based mapping debug lookup (popup output includes detected lemma + lookup term + Browser filter for related notes).
 - 2026-02-16 21:40:00: Family Priority family-id search logging now distinguishes fallback stages: `WARN` for failed single attempts, `ERROR` only when all query variants fail.
+- 2026-02-16 21:55:00: Example Unlocker mapping now resolves up to 2 target cards per example; unlock requires threshold pass on all resolved targets. `data-lemma` template marker is preferred when `cloze == lemma`.
 
 ## Debug Clarification Status
 - 2026-02-16 19:34:30: No open debug investigation in this change set.

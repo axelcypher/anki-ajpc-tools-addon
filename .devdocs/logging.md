@@ -33,8 +33,9 @@ This file lists only module functions that call logging paths, and which level t
 - `_open_browser_for_nids` -> `WARN`
 - `example_gate_apply` -> `TRACE`, `INFO`, `WARN`
   - Mapping summaries include reason buckets (`reason=count`) and `nid:reason` examples.
+  - Target-card resolution now accepts 1-2 CIDs; debug trace includes `target_cids=[...]` and stability arrays.
 - `_build_settings` -> `INFO`
-  - Emits `Example Unlocker mapping lookup` with `nid`, `ok`, `lemma`, `reason`, `error`, and `elapsed_ms`.
+  - Emits `Example Unlocker mapping lookup` with `nid`, `ok`, `lemma`, `reason`, `target_cids`, `error`, and `elapsed_ms`.
 - `run_example_gate` -> `TRACE`, `INFO`, `WARN`, `ERROR`
 
 ## `modules/family_priority.py`

@@ -26,6 +26,7 @@
 - Fixed Family Priority family lookup queries for family IDs containing spaces by using quoted regex query path with compatibility fallback.
 - Tightened Family Priority family lookup logging: single query-attempt failures now log `WARN`, and only full fallback failure logs `ERROR`.
 - Improved Example Unlocker mapping diagnostics: warning/info summaries now include reason buckets and `nid:reason` examples.
+- Example Unlocker target-card resolution now supports up to 2 matched cards and requires threshold pass on all matched targets; added `data-lemma` marker preference for `cloze == lemma` cases.
 
 ## 1.0.0-beta.1 - 2026-02-14
 
