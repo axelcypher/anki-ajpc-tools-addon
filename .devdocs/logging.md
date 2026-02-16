@@ -30,8 +30,11 @@ This file lists only module functions that call logging paths, and which level t
 - `_verify_suspended` -> `TRACE`
 - `_fugashi_tagger` -> `INFO`, `WARN`
 - `note_ids_for_deck` -> `TRACE`
+- `_open_browser_for_nids` -> `WARN`
 - `example_gate_apply` -> `TRACE`, `INFO`, `WARN`
   - Mapping summaries include reason buckets (`reason=count`) and `nid:reason` examples.
+- `_build_settings` -> `INFO`
+  - Emits `Example Unlocker mapping lookup` with `nid`, `ok`, `lemma`, `reason`, `error`, and `elapsed_ms`.
 - `run_example_gate` -> `TRACE`, `INFO`, `WARN`, `ERROR`
 
 ## `modules/family_priority.py`

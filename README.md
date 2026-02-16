@@ -152,6 +152,19 @@ If mapping cannot be resolved, the module logs grouped diagnostics with reason k
 (for example `ambiguous_target_card`, `ambiguous_lemma`, `force_nid_not_found`) and
 example note IDs in `nid:reason` format.
 
+### Mapping debug lookup (Settings)
+
+In the **Example Unlocker** settings tab, there is a dedicated **Mapping debug** row:
+
+* Enter an **example note NID**
+* Click **Search**
+* A popup shows:
+  * cloze surface
+  * detected lemma
+  * the exact lookup term used for matching
+  * match reason and target note/card IDs
+* From the popup, **Filter Notes** opens the Browser with related note IDs (example + mapping candidates).
+
 ---
 
 ## Kanji Unlocker

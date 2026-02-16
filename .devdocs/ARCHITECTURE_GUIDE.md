@@ -41,6 +41,7 @@
   2. `Info` (from `core/info.py`)
   3. `Debug` (from `core/debug.py`, visible only when `debug.enabled`)
 - After fixed core tabs, dynamically discovered module tabs are appended.
+- `modules/example_gate.py` owns an inline Settings-side debug lookup UI (`Mapping debug`) for single-note mapping diagnostics. It must stay module-local and reuse the same mapping pipeline as runtime apply logic.
 
 ## Menu Boundaries
 - `__init__.py` installs top-level settings items as:
@@ -64,3 +65,4 @@
 - Config files must be UTF-8 without BOM.
 - Keep migration behavior backward compatible for old config key shapes.
 - Example Unlocker mapping diagnostics must log grouped reason counts plus compact `nid:reason` samples for warn/info mapping summaries.
+- Mapping debug lookups should include the detected lemma and the concrete lookup term used for matching to avoid hidden matching-state ambiguity.

@@ -10,6 +10,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+import aqt
 from anki.collection import Collection, OpChanges
 from anki.errors import InvalidInput
 from aqt import mw
@@ -17,11 +18,14 @@ from aqt.operations import CollectionOp
 from aqt.qt import (
     QCheckBox,
     QComboBox,
+    QHBoxLayout,
     QFrame,
     QDoubleSpinBox,
     QFormLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -805,6 +809,201 @@ def note_ids_for_deck(col: Collection, deck_name: str) -> list[int]:
         return []
 
 
+def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
+    dict[str, list["VocabIndexEntry"]],
+    dict[int, "VocabIndexEntry"],
+    dict[str, list["SurfaceCandidate"]],
+]:
+    _MODEL_FORM_MARKER_CACHE.clear()
+    _CARD_RUNTIME_CACHE.clear()
+
+    vocab_nids = note_ids_for_deck(col, config.VOCAB_DECK)
+    dbg("example_gate: vocab notes", len(vocab_nids))
+
+    vocab_by_key: dict[str, list[VocabIndexEntry]] = {}
+    vocab_by_nid: dict[int, VocabIndexEntry] = {}
+    surface_index: dict[str, list[SurfaceCandidate]] = {}
+
+    for i, nid in enumerate(vocab_nids):
+        try:
+            note = col.get_note(nid)
+            nt_id = int(note.mid)
+            if config.EXAMPLE_KEY_FIELD not in note:
+                continue
+
+            key = norm_text(str(note[config.EXAMPLE_KEY_FIELD] or ""))
+            if not key:
+                continue
+
+            marker_map = _template_ord_form_markers(nt_id)
+            candidate_cids: list[int] = []
+            for card in note.cards():
+                marker = marker_map.get(int(card.ord), None)
+                if not marker:
+                    continue
+                runtime = _card_runtime_data(card)
+                if not runtime:
+                    continue
+                reading, ctype = runtime
+                surface = norm_text(_surface_from_marker(marker, reading, ctype))
+                if not surface:
+                    continue
+                candidate_cids.append(int(card.id))
+                cand = SurfaceCandidate(nid=int(nid), cid=int(card.id), key=key, marker=marker)
+                surface_index.setdefault(surface, []).append(cand)
+
+            entry = VocabIndexEntry(
+                nid=int(nid),
+                key=key,
+                note_type_id=nt_id,
+                candidate_cids=sorted(set(candidate_cids)),
+            )
+            vocab_by_key.setdefault(key, []).append(entry)
+            vocab_by_nid[int(nid)] = entry
+
+            if callable(ui_set) and i % 400 == 0:
+                ui_set(
+                    f"ExampleGate: index vocab... {i}/{len(vocab_nids)} (keys={len(vocab_by_key)})",
+                    i,
+                    len(vocab_nids),
+                )
+        except Exception:
+            dbg("example_gate: exception indexing vocab nid", nid)
+            dbg(traceback.format_exc())
+            log_warn("example_gate: exception indexing vocab nid", nid)
+
+    dbg("example_gate: vocab keys", len(vocab_by_key), "surface keys", len(surface_index))
+    return vocab_by_key, vocab_by_nid, surface_index
+
+
+def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "ok": False,
+        "nid": int(nid),
+        "cloze_surface": "",
+        "lemma": "",
+        "lemma_status": "",
+        "lookup_term": "",
+        "force_nid": None,
+        "match_reason": "",
+        "target_vocab_nid": None,
+        "target_cid": None,
+        "error": "",
+        "related_nids": [int(nid)],
+    }
+    related_nids: set[int] = {int(nid)}
+
+    if not config.VOCAB_DECK or not config.EXAMPLE_DECK:
+        out["error"] = "missing_deck_config"
+        return out
+    if not config.EXAMPLE_KEY_FIELD:
+        out["error"] = "missing_key_field_config"
+        return out
+
+    try:
+        note = col.get_note(int(nid))
+    except Exception:
+        out["error"] = "note_not_found"
+        return out
+
+    cloze_surface = _extract_first_cloze_target(note)
+    out["cloze_surface"] = cloze_surface
+    if not cloze_surface:
+        out["error"] = "missing_cloze_target"
+        return out
+
+    force_nid = _parse_force_nid(note)
+    if force_nid is not None:
+        related_nids.add(int(force_nid))
+    out["force_nid"] = force_nid
+
+    lemma, lemma_status = _lemma_from_surface(cloze_surface)
+    out["lemma"] = lemma
+    out["lemma_status"] = lemma_status
+    out["lookup_term"] = lemma
+
+    vocab_by_key, vocab_by_nid, surface_index = _build_vocab_mapping_indices(col)
+
+    entry: VocabIndexEntry | None = None
+    target_cid: int | None = None
+    reason = ""
+
+    if force_nid is not None:
+        entry = vocab_by_nid.get(int(force_nid))
+        if entry is None:
+            out["error"] = f"force_nid_not_found:{force_nid}"
+            out["related_nids"] = sorted(related_nids)
+            return out
+        reason = f"forced:{force_nid}"
+    else:
+        by_lemma = vocab_by_key.get(lemma, [])
+        if len(by_lemma) == 1:
+            entry = by_lemma[0]
+            reason = f"lemma:{lemma_status}"
+        elif len(by_lemma) > 1:
+            for cand in by_lemma:
+                related_nids.add(int(cand.nid))
+            out["error"] = f"ambiguous_lemma:{lemma}"
+            out["related_nids"] = sorted(related_nids)
+            return out
+        else:
+            surface_hits = surface_index.get(cloze_surface, [])
+            uniq_nids = sorted({h.nid for h in surface_hits})
+            related_nids.update(int(x) for x in uniq_nids)
+            if len(uniq_nids) == 1:
+                entry = vocab_by_nid.get(uniq_nids[0])
+                if entry:
+                    uniq_cids = sorted({h.cid for h in surface_hits if h.nid == entry.nid})
+                    if len(uniq_cids) == 1:
+                        target_cid = uniq_cids[0]
+                    elif len(uniq_cids) > 1:
+                        out["error"] = f"ambiguous_card_for_surface:{cloze_surface}"
+                        out["related_nids"] = sorted(related_nids)
+                        return out
+                    reason = "surface_match"
+            if entry is None:
+                out["error"] = f"no_vocab_match:{cloze_surface}"
+                out["related_nids"] = sorted(related_nids)
+                return out
+
+    if target_cid is None:
+        surface_hits = [h for h in surface_index.get(cloze_surface, []) if h.nid == entry.nid]
+        uniq_cids = sorted({h.cid for h in surface_hits})
+        if len(uniq_cids) == 1:
+            target_cid = uniq_cids[0]
+        elif len(entry.candidate_cids) == 1:
+            target_cid = entry.candidate_cids[0]
+        else:
+            out["error"] = f"ambiguous_target_card:{entry.nid}"
+            related_nids.add(int(entry.nid))
+            out["related_nids"] = sorted(related_nids)
+            return out
+
+    related_nids.add(int(entry.nid))
+    out["match_reason"] = reason
+    out["target_vocab_nid"] = int(entry.nid)
+    out["target_cid"] = int(target_cid)
+    out["ok"] = True
+    out["related_nids"] = sorted(related_nids)
+    return out
+
+
+def _open_browser_for_nids(nids: Iterable[int]) -> bool:
+    if mw is None:
+        return False
+    uniq = sorted({int(x) for x in nids if int(x) > 0})
+    if not uniq:
+        return False
+    query = " or ".join(f"nid:{nid}" for nid in uniq)
+    try:
+        browser = aqt.dialogs.open("Browser", mw)
+        browser.search_for(query)
+        return True
+    except Exception:
+        log_warn("example_gate browser filter failed", f"query={query}")
+        return False
+
+
 @dataclass
 class VocabIndexEntry:
     nid: int
@@ -854,69 +1053,7 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
         )
         return
 
-    vocab_nids = note_ids_for_deck(col, config.VOCAB_DECK)
-    dbg("example_gate: vocab notes", len(vocab_nids))
-
-    _MODEL_FORM_MARKER_CACHE.clear()
-    _CARD_RUNTIME_CACHE.clear()
-
-    vocab_by_key: dict[str, list[VocabIndexEntry]] = {}
-    vocab_by_nid: dict[int, VocabIndexEntry] = {}
-    surface_index: dict[str, list[SurfaceCandidate]] = {}
-    note_surface_candidates: dict[int, list[SurfaceCandidate]] = {}
-
-    for i, nid in enumerate(vocab_nids):
-        try:
-            note = col.get_note(nid)
-            nt_id = int(note.mid)
-            if config.EXAMPLE_KEY_FIELD not in note:
-                continue
-
-            key = norm_text(str(note[config.EXAMPLE_KEY_FIELD] or ""))
-            if not key:
-                continue
-
-            marker_map = _template_ord_form_markers(nt_id)
-            candidate_cids: list[int] = []
-            note_candidates: list[SurfaceCandidate] = []
-            for card in note.cards():
-                marker = marker_map.get(int(card.ord), None)
-                if not marker:
-                    continue
-                runtime = _card_runtime_data(card)
-                if not runtime:
-                    continue
-                reading, ctype = runtime
-                surface = norm_text(_surface_from_marker(marker, reading, ctype))
-                if not surface:
-                    continue
-                candidate_cids.append(int(card.id))
-                cand = SurfaceCandidate(nid=int(nid), cid=int(card.id), key=key, marker=marker)
-                note_candidates.append(cand)
-                surface_index.setdefault(surface, []).append(cand)
-
-            entry = VocabIndexEntry(
-                nid=int(nid),
-                key=key,
-                note_type_id=nt_id,
-                candidate_cids=sorted(set(candidate_cids)),
-            )
-            vocab_by_key.setdefault(key, []).append(entry)
-            vocab_by_nid[int(nid)] = entry
-            note_surface_candidates[int(nid)] = note_candidates
-
-            if i % 400 == 0:
-                ui_set(
-                    f"ExampleGate: index vocab... {i}/{len(vocab_nids)} (keys={len(vocab_by_key)})",
-                    i,
-                    len(vocab_nids),
-                )
-        except Exception:
-            dbg("example_gate: exception indexing vocab nid", nid)
-            dbg(traceback.format_exc())
-            log_warn("example_gate: exception indexing vocab nid", nid)
-
-    dbg("example_gate: vocab keys", len(vocab_by_key), "surface keys", len(surface_index))
+    vocab_by_key, vocab_by_nid, surface_index = _build_vocab_mapping_indices(col, ui_set=ui_set)
 
     ex_nids = note_ids_for_deck(col, config.EXAMPLE_DECK)
     dbg("example_gate: example notes", len(ex_nids))
@@ -1275,6 +1412,99 @@ def _build_settings(ctx):
         _tip_label("Threshold", "Required FSRS stability before dependent cards unlock."),
         example_threshold_spin,
     )
+
+    debug_separator = QFrame()
+    debug_separator.setFrameShape(QFrame.Shape.HLine)
+    debug_separator.setFrameShadow(QFrame.Shadow.Sunken)
+    example_form.addWidget(debug_separator)
+
+    debug_lookup_row = QWidget()
+    debug_lookup_layout = QHBoxLayout()
+    debug_lookup_layout.setContentsMargins(0, 0, 0, 0)
+    debug_lookup_row.setLayout(debug_lookup_layout)
+    mapping_debug_nid_edit = QLineEdit()
+    mapping_debug_nid_edit.setPlaceholderText("Example note NID")
+    mapping_debug_search_btn = QPushButton("Search")
+    debug_lookup_layout.addWidget(mapping_debug_nid_edit)
+    debug_lookup_layout.addWidget(mapping_debug_search_btn)
+    example_form.addRow(
+        _tip_label(
+            "Mapping debug",
+            "Inspect one Example-note mapping by NID and show which lemma is used for matching.",
+        ),
+        debug_lookup_row,
+    )
+
+    def _show_mapping_debug_popup(result: dict[str, Any]) -> None:
+        ok = bool(result.get("ok"))
+        nid = int(result.get("nid", 0) or 0)
+        cloze_surface = str(result.get("cloze_surface", "") or "")
+        lemma = str(result.get("lemma", "") or "")
+        lemma_status = str(result.get("lemma_status", "") or "")
+        lookup_term = str(result.get("lookup_term", "") or "")
+        reason = str(result.get("match_reason", "") or "")
+        target_vocab_nid = result.get("target_vocab_nid")
+        target_cid = result.get("target_cid")
+        err = str(result.get("error", "") or "")
+        related_nids = [int(x) for x in (result.get("related_nids") or []) if int(x) > 0]
+
+        msg = QMessageBox(example_tab)
+        msg.setWindowTitle("Example Unlocker Mapping Debug")
+        msg.setIcon(QMessageBox.Icon.Information if ok else QMessageBox.Icon.Warning)
+        msg.setText("Mapping found." if ok else "No unique mapping found.")
+        lines = [
+            f"Example NID: {nid}",
+            f"Cloze surface: {cloze_surface or '-'}",
+            f"Lemma (ermittelt): {lemma or '-'}",
+            f"Lemma status: {lemma_status or '-'}",
+            f"Abgleichsbegriff: {lookup_term or '-'}",
+            f"Match reason: {reason or '-'}",
+            f"Target vocab NID: {target_vocab_nid if target_vocab_nid is not None else '-'}",
+            f"Target card CID: {target_cid if target_cid is not None else '-'}",
+            f"Error: {err or '-'}",
+            f"Related notes: {', '.join(str(x) for x in related_nids) if related_nids else '-'}",
+        ]
+        msg.setInformativeText("\n".join(lines))
+        filter_btn = msg.addButton("Filter Notes", QMessageBox.ButtonRole.ActionRole)
+        msg.addButton(QMessageBox.StandardButton.Close)
+        msg.exec()
+        if msg.clickedButton() == filter_btn:
+            if _open_browser_for_nids(related_nids):
+                tooltip("Opened Browser filter for related notes.", period=2500)
+            else:
+                tooltip("Failed to open Browser filter.", period=2500)
+
+    def _run_mapping_debug_lookup() -> None:
+        raw = str(mapping_debug_nid_edit.text() or "").strip()
+        if not raw:
+            tooltip("Enter an Example note NID first.", period=2500)
+            return
+        try:
+            nid = int(raw)
+        except Exception:
+            tooltip("NID must be numeric.", period=2500)
+            return
+        if mw is None or mw.col is None:
+            tooltip("No collection loaded.", period=2500)
+            return
+
+        config.reload_config()
+        t0 = time.time()
+        result = _diagnose_example_mapping_by_nid(mw.col, nid)
+        elapsed_ms = int((time.time() - t0) * 1000)
+        log_info(
+            "Example Unlocker mapping lookup",
+            f"nid={nid}",
+            f"ok={bool(result.get('ok'))}",
+            f"lemma={result.get('lemma', '')}",
+            f"reason={result.get('match_reason', '')}",
+            f"error={result.get('error', '')}",
+            f"elapsed_ms={elapsed_ms}",
+        )
+        _show_mapping_debug_popup(result)
+
+    mapping_debug_search_btn.clicked.connect(_run_mapping_debug_lookup)
+    mapping_debug_nid_edit.returnPressed.connect(_run_mapping_debug_lookup)
 
     example_layout.addStretch(1)
 

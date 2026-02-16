@@ -17,6 +17,7 @@
 - Promoted `general`, `info`, and `debug` from dynamic `modules/` entries to fixed architecture components in `core/`.
 - Browser graph helper initialization is now performed by `modules/link_core.py` (`install_browser_graph()`), while keeping List/Graph/Deps editor buttons active.
 - Added neutral deck-stats registry (`modules/_widgets/deck_stats_registry.py`) and switched widget providers to module registration.
+- Added Example Unlocker mapping-debug lookup in settings (`NID + Search`) with result popup showing detected lemma/lookup term and Browser filter action for related notes.
 
 ### Fixes
 - Removed UTF-8 BOM from `config.py` and `config_migrations.py` to comply with Anki config-loader guardrail.
