@@ -24,6 +24,7 @@
 - Removed obsolete debug setting `debug.show_restart_button`.
 - Removed tracked restart build artifacts from version control and ignored `modules/restart_helper/build/`.
 - Fixed Family Priority family lookup queries for family IDs containing spaces by using quoted regex query path with compatibility fallback.
+- Tightened Family Priority family lookup logging: single query-attempt failures now log `WARN`, and only full fallback failure logs `ERROR`.
 - Improved Example Unlocker mapping diagnostics: warning/info summaries now include reason buckets and `nid:reason` examples.
 
 ## 1.0.0-beta.1 - 2026-02-14

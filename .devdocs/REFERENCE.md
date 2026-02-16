@@ -20,6 +20,7 @@
 - 2026-02-16 21:08:00: Restart helper folder moved from addon root `restart_helper/` into module scope `modules/restart_helper/`; runtime path in `modules/restart.py` was updated accordingly.
 - 2026-02-16 21:17:00: Example Unlocker mapping diagnostics are now reason-grouped in logs (`reason=count`) with `nid:reason` examples for faster root-cause triage.
 - 2026-02-16 21:33:00: Example Unlocker settings now include NID-based mapping debug lookup (popup output includes detected lemma + lookup term + Browser filter for related notes).
+- 2026-02-16 21:40:00: Family Priority family-id search logging now distinguishes fallback stages: `WARN` for failed single attempts, `ERROR` only when all query variants fail.
 
 ## Debug Clarification Status
 - 2026-02-16 19:34:30: No open debug investigation in this change set.

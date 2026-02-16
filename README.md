@@ -100,6 +100,9 @@ You attach a "priority number" to a FamilyID entry inside the FamilyID field:
   ...and so on.
 
 Family IDs can contain spaces (for example `kita guchi`) and are handled as normal IDs.
+Family IDs with regex-relevant characters (for example `[` or `]`) are queried via
+fallback search variants; single-attempt failures are logged as warn attempts, and only
+when all variants fail the module logs a hard error.
 
 If a note contains multiple family links, **all of them must be satisfied** before the note can unlock.
 

@@ -66,3 +66,4 @@
 - Keep migration behavior backward compatible for old config key shapes.
 - Example Unlocker mapping diagnostics must log grouped reason counts plus compact `nid:reason` samples for warn/info mapping summaries.
 - Mapping debug lookups should include the detected lemma and the concrete lookup term used for matching to avoid hidden matching-state ambiguity.
+- Family Priority fallback searches should only emit hard `ERROR` when all query variants fail; individual variant failures stay on `WARN`.

@@ -679,14 +679,23 @@ def _family_find_nids(field: str, fid: str) -> list[int]:
         f'{field_term}:re:"{quoted_pattern}"',
         f"{field_term}:re:{pattern}",
     ]
+    failed_queries: list[str] = []
     for q in queries:
         try:
             nids = list(mw.col.find_notes(q))
             FAMILY_LOOKUP_CACHE[cache_key] = (now, nids)
             return nids
         except Exception:
-            dbg("family link search failed", q)
-            log_warn("family link search failed", q)
+            failed_queries.append(q)
+            dbg("family link search attempt failed", q)
+            log_warn("family link search attempt failed", q)
+    if failed_queries:
+        log_error(
+            "family link search failed (all attempts)",
+            f"field={field_txt}",
+            f"fid={fid_txt}",
+            f"queries={failed_queries}",
+        )
     return []
 
 

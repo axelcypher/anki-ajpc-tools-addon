@@ -44,7 +44,9 @@ This file lists only module functions that call logging paths, and which level t
 - `log_error` -> `ERROR`
 - `_verify_suspended` -> `TRACE`
 - `note_ids_for_note_types` -> `TRACE`
-- `_family_find_nids` -> `TRACE`, `WARN`
+- `_family_find_nids` -> `TRACE`, `WARN`, `ERROR`
+  - Per failed query attempt emits `WARN` (`family link search attempt failed`).
+  - Emits `ERROR` only if all fallback query variants fail (`family link search failed (all attempts)`).
 - `family_priority_apply` -> `TRACE`, `INFO`, `WARN`
 - `run_family_priority` -> `TRACE`, `INFO`, `WARN`, `ERROR`
 
