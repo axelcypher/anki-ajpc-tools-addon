@@ -8,10 +8,9 @@ from aqt.qt import QHBoxLayout, QLabel, QPushButton, QTextBrowser, QVBoxLayout, 
 from .. import config, logging
 from ..ui import menu
 from ..version import __version__
-from . import ModuleSpec
 
 
-def _build_settings(ctx):
+def build_settings(ctx):
     info_tab = QWidget()
     info_layout = QVBoxLayout()
     info_tab.setLayout(info_layout)
@@ -82,10 +81,3 @@ def _build_settings(ctx):
 
     _sync_installer_buttons()
 
-
-MODULE = ModuleSpec(
-    id="info",
-    label="Info",
-    order=900,
-    build_settings=_build_settings,
-)

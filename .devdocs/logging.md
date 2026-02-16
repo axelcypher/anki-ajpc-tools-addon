@@ -63,13 +63,13 @@ This file lists only module functions that call logging paths, and which level t
 - `_copy_note_link_for_browser` -> `WARN`
 - `_link_refs_for_tag` -> `WARN`
 
-## `modules/debug.py`
+## `core/debug.py`
 - `_build_target_cmd` -> `DEBUG`
 - `_start_restart_helper` -> `DEBUG`, `WARN`, `ERROR`
 - `_delayed_restart_anki` -> `DEBUG`, `WARN`, `ERROR`
 
-## `modules/info.py`
-- `_build_settings` -> `WARN`
+## `core/info.py`
+- `build_settings` -> `WARN`
 
 ## `ui/settings.py`
 - `open_settings_dialog` -> `DEBUG`, `WARN`, `ERROR`
@@ -80,13 +80,14 @@ This file lists only module functions that call logging paths, and which level t
 
 ## `__init__.py`
 - module init block -> `DEBUG`
+- core init block (`core_general.init`, `core_debug.init`) -> `ERROR`
 - module init loop (`for mod in modules`) -> `ERROR`
 
 ## `modules/browser_graph.py`
 - `_show_note_in_ajpc_graph` -> `DEBUG`, `WARN`
 - `_focus_companion_graph_note` -> `DEBUG`, `WARN`
 
-## `modules/general.py`
+## `core/general.py`
 - `_try_preload_graph_once` -> `DEBUG`, `INFO`, `WARN`
 
 ## `modules/link_core.py`

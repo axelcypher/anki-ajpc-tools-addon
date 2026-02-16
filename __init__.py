@@ -5,6 +5,8 @@ from aqt import gui_hooks, mw
 from . import _vendor_loader
 from . import config, logging
 from . import config_migrations
+from .core import debug as core_debug
+from .core import general as core_general
 from .api import graph_api, note_editor_api, settings_api
 from .modules import discover_modules, iter_run_items, iter_settings_items
 from .ui import menu
@@ -74,6 +76,14 @@ def _on_profile_open(*_args, **_kwargs) -> None:
 
 gui_hooks.profile_did_open.append(_on_profile_open)
 
+try:
+    core_general.init()
+except Exception as exc:
+    logging.error("core init failed", "general", repr(exc), source="__init__")
+try:
+    core_debug.init()
+except Exception as exc:
+    logging.error("core init failed", "debug", repr(exc), source="__init__")
 
 for mod in modules:
     if callable(mod.init):
@@ -84,5 +94,5 @@ for mod in modules:
 
 menu.install_menu(
     run_items=iter_run_items(modules),
-    settings_items=iter_settings_items(modules),
+    settings_items=(core_general.settings_items() + core_debug.settings_items() + iter_settings_items(modules)),
 )

@@ -8,6 +8,9 @@ from aqt.utils import showInfo, show_info
 
 from .. import config, logging
 from ..api import settings_api
+from ..core import debug as core_debug
+from ..core import general as core_general
+from ..core import info as core_info
 from ..modules import discover_modules
 from . import menu
 from .settings_common import SettingsContext
@@ -41,6 +44,22 @@ def open_settings_dialog() -> None:
     save_fns: list = []
     external_validators: list = []
     external_savers: list = []
+
+    core_builders = [
+        ("general", core_general.build_settings),
+        ("info", core_info.build_settings),
+        ("debug", core_debug.build_settings),
+    ]
+    for core_id, core_build_fn in core_builders:
+        if not callable(core_build_fn):
+            continue
+        try:
+            save_fn = core_build_fn(ctx)
+        except Exception as exc:
+            logging.error("settings: core build failed", core_id, repr(exc), source="settings")
+            continue
+        if callable(save_fn):
+            save_fns.append(save_fn)
 
     modules = discover_modules()
     for mod in modules:

@@ -270,6 +270,7 @@ The add-on uses a split config architecture:
 
 - `config.py` is module-agnostic core infrastructure (load/save helpers, global runtime toggles, debug flags).
 - `config_migrations.py` owns schema/key migrations for `config.json`.
+- Fixed architecture components live in `core/*.py` (`general`, `info`, `debug`) and are not part of dynamic module discovery.
 - Feature modules in `modules/*.py` own their own runtime config proxies and module-specific keys.
 
 This keeps modules plug-and-play and avoids cross-module coupling through a central config singleton.

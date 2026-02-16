@@ -19,3 +19,4 @@
 [2026-02-16 19:32:00] Codex: Added README architecture note + scripts/check_config_migrations.py and validated migration behavior via local script run.
 [2026-02-16 19:32:30] Codex: AGENTS catch-up - added missing .devdocs documentation files, updated CHANGELOG, and removed UTF-8 BOM from config.py/config_migrations.py.
 [2026-02-16 19:33:00] Codex: AGENTS compliance follow-up - unignored and versioned required .devdocs files, updated README/CHANGELOG, and reran config smoke checks.
+[2026-02-16 19:36:01] Codex: Promoted `debug/general/info` from dynamic `modules/` to fixed `core/` components, rewired bootstrap/settings tab build order, and updated architecture/reference/logging/style docs + changelog.

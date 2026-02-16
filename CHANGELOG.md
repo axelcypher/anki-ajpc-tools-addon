@@ -10,6 +10,7 @@
 - Extracted config schema migrations into dedicated `config_migrations.py`.
 - Added migration validation script `scripts/check_config_migrations.py`.
 - Added documentation section `Configuration Architecture` to `README.md`.
+- Promoted `general`, `info`, and `debug` from dynamic `modules/` entries to fixed architecture components in `core/`.
 
 ### Fixes
 - Removed UTF-8 BOM from `config.py` and `config_migrations.py` to comply with Anki config-loader guardrail.

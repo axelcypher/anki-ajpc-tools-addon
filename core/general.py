@@ -7,7 +7,6 @@ from aqt import gui_hooks, mw
 from aqt.qt import QByteArray, QCheckBox, QFormLayout, QLabel, Qt, QTimer, QWidget
 
 from .. import config, logging
-from . import ModuleSpec
 
 _GRAPH_PRELOAD_RETRY_MAX = 25
 _GRAPH_PRELOAD_RETRY_MS = 400
@@ -212,7 +211,7 @@ def _on_profile_will_close(*_args, **_kwargs) -> None:
     _save_main_window_geometry()
 
 
-def _init_window_restore_hooks() -> None:
+def init() -> None:
     if mw is None:
         return
     if getattr(mw, "_ajpc_window_restore_hooks_installed", False):
@@ -225,7 +224,7 @@ def _init_window_restore_hooks() -> None:
     _on_profile_did_open()
 
 
-def _build_settings(ctx):
+def build_settings(ctx):
     general_tab = QWidget()
     general_form = QFormLayout()
     general_tab.setLayout(general_form)
@@ -280,20 +279,14 @@ def _build_settings(ctx):
     return _save
 
 
-MODULE = ModuleSpec(
-    id="general",
-    label="General",
-    order=10,
-    settings_items=[
+def settings_items() -> list[dict]:
+    return [
         {
             "label": "Settings",
             "callback": lambda: _open_settings_dialog(),
             "order": 20,
         }
-    ],
-    init=_init_window_restore_hooks,
-    build_settings=_build_settings,
-)
+    ]
 
 
 def _open_settings_dialog() -> None:

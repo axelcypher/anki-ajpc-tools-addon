@@ -24,7 +24,6 @@ from aqt.utils import showInfo
 from .. import config, logging
 from ..ui import menu
 from ..ui.settings_common import _parse_watch_nids
-from . import ModuleSpec
 
 _RESTART_DELAY_SECONDS = 2
 _RESTART_MAX_WAIT_MS = 15000
@@ -319,13 +318,13 @@ def _on_profile_open(*_args, **_kwargs) -> None:
     _sync_restart_top_action()
 
 
-def _init() -> None:
+def init() -> None:
     menu.register_refresh_callback(_sync_restart_top_action)
     gui_hooks.profile_did_open.append(_on_profile_open)
     _sync_restart_top_action()
 
 
-def _build_settings(ctx):
+def build_settings(ctx):
     if not config.DEBUG:
         return None
 
@@ -418,18 +417,12 @@ def _build_settings(ctx):
     return _save
 
 
-MODULE = ModuleSpec(
-    id="debug",
-    label="Debug",
-    order=890,
-    init=_init,
-    settings_items=[
+def settings_items() -> list[dict]:
+    return [
         {
             "label": "Open Debug Log",
             "callback": menu.open_debug_log,
             "visible_fn": lambda: bool(config.DEBUG),
             "order": 10,
         }
-    ],
-    build_settings=_build_settings,
-)
+    ]
