@@ -30,6 +30,9 @@
 - 2026-02-16 23:33:13: Example Unlocker now adds a strict `suru`-verb fallback for ambiguous-tokenization forms (`...します` -> `...する`), and only accepts candidates explicitly marked as `suru` verbs.
 - 2026-02-16 23:45:34: Example Unlocker reading fallback source field is now configurable via `example_gate.reading_field` (Settings label `Reading fallback field`; default `VocabReading`).
 - 2026-02-16 23:54:19: Example Unlocker now accepts up to 3 tokens (verb/adjective leading token) in lemma/reading extraction before returning `ambiguous_tokenization`.
+- 2026-02-17 00:12:26: Example Unlocker verb/adjective token window is now up to 4 tokens in lemma/reading extraction before returning `ambiguous_tokenization`.
+- 2026-02-17 00:10:12: Example Unlocker reading fallback now evaluates both cloze+lemma readings and can select a unique resolvable candidate even when strict key-scope is empty (`reading_fallback:resolvable_unscoped`).
+- 2026-02-17 00:10:12: Mapping-debug UI row is now shown only when Debug mode is enabled, and popup output now includes reading-fallback diagnostics (field, terms, candidates, scope filtering, selected NID).
 
 ## Debug Clarification Status
 - 2026-02-16 19:34:30: No open debug investigation in this change set.

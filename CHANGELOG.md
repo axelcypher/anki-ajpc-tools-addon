@@ -34,7 +34,9 @@
 - Added reading-index fallback in Example Unlocker (`VocabReading` normalized to hira) for unresolved lemma/canonicalization cases, with key/literal guards to reduce false positives.
 - Added a strict `suru`-verb fallback for ambiguous-tokenization forms (e.g. `残業します` -> `残業する`), limited to entries explicitly marked as `suru` verbs to avoid noun mismatches.
 - Added Example Unlocker settings/config support for configurable reading fallback field (`example_gate.reading_field`, default `VocabReading`).
-- Increased Example Unlocker verb/adjective tokenization acceptance window from 2 to 3 tokens for lemma/reading extraction before `ambiguous_tokenization`.
+- Increased Example Unlocker verb/adjective tokenization acceptance window from 2 to 4 tokens for lemma/reading extraction before `ambiguous_tokenization`.
+- Updated Example Unlocker reading fallback to use both cloze + lemma readings and allow a unique resolvable candidate when strict key-scope is empty (`reading_fallback:resolvable_unscoped`).
+- Expanded Example Unlocker mapping-debug popup with reading-fallback diagnostics and tied Mapping-debug row visibility to Debug mode.
 
 ## 1.0.0-beta.1 - 2026-02-14
 

@@ -678,7 +678,7 @@ def _lemma_from_surface(surface: str) -> tuple[str, str]:
     tok = None
     if len(tokens) == 1:
         tok = tokens[0]
-    elif 2 <= len(tokens) <= 3 and _token_is_verb_or_adj(tokens[0]):
+    elif 2 <= len(tokens) <= 4 and _token_is_verb_or_adj(tokens[0]):
         tok = tokens[0]
     else:
         return s, "ambiguous_tokenization"
@@ -711,7 +711,7 @@ def _reading_from_surface(surface: str) -> str:
     tok = None
     if len(tokens) == 1:
         tok = tokens[0]
-    elif 2 <= len(tokens) <= 3 and _token_is_verb_or_adj(tokens[0]):
+    elif 2 <= len(tokens) <= 4 and _token_is_verb_or_adj(tokens[0]):
         tok = tokens[0]
     else:
         return ""
@@ -1149,38 +1149,106 @@ def _select_entry_by_suru_fallback(
     return None, None
 
 
+def _build_reading_terms(*terms: str) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for term in terms:
+        txt = _norm_reading_key(str(term or ""))
+        if not txt or txt in seen:
+            continue
+        seen.add(txt)
+        out.append(txt)
+    return out
+
+
 def _select_entry_by_reading_fallback(
     *,
     vocab_by_reading: dict[str, list["VocabIndexEntry"]],
-    cloze_reading: str,
+    reading_terms: list[str],
     cloze_surface: str,
     cloze_surface_literal: str,
     lemma: str,
     surface_index: dict[str, list["SurfaceCandidate"]],
+    debug_meta: dict[str, Any] | None = None,
 ) -> tuple["VocabIndexEntry | None", str | None, set[int]]:
     related_nids: set[int] = set()
-    if not cloze_reading:
+    terms = _build_reading_terms(*reading_terms)
+    if debug_meta is not None:
+        phase = str(debug_meta.get("phase", "") or "")
+        debug_meta.clear()
+        if phase:
+            debug_meta["phase"] = phase
+        debug_meta["reading_field"] = str(config.EXAMPLE_READING_FIELD or "").strip() or "VocabReading"
+        debug_meta["reading_terms"] = list(terms)
+        debug_meta["stage"] = "start"
+    if not terms:
+        if debug_meta is not None:
+            debug_meta["stage"] = "no_reading_terms"
         return None, None, related_nids
 
-    candidates = list(vocab_by_reading.get(cloze_reading, []))
+    by_nid: dict[int, VocabIndexEntry] = {}
+    for term in terms:
+        for cand in vocab_by_reading.get(term, []):
+            by_nid[int(cand.nid)] = cand
+    candidates = list(by_nid.values())
     if not candidates:
+        if debug_meta is not None:
+            debug_meta["stage"] = "no_reading_candidates"
+            debug_meta["candidate_nids"] = []
         return None, None, related_nids
 
     for cand in candidates:
         related_nids.add(int(cand.nid))
+    if debug_meta is not None:
+        debug_meta["candidate_nids"] = sorted(int(c.nid) for c in candidates)
 
     scoped = [cand for cand in candidates if cand.key in {cloze_surface, lemma}]
+    if debug_meta is not None:
+        scoped_nids = sorted(int(c.nid) for c in scoped)
+        debug_meta["scoped_nids"] = scoped_nids
+        debug_meta["rejected_scope_nids"] = sorted(
+            int(c.nid) for c in candidates if int(c.nid) not in set(scoped_nids)
+        )
     if not scoped:
-        return None, f"ambiguous_reading:{cloze_reading}", related_nids
+        resolvable: list[VocabIndexEntry] = []
+        for cand in candidates:
+            target_cids, target_err = _resolve_target_cids(
+                cand,
+                cloze_surface=cloze_surface,
+                lemma=lemma,
+                cloze_reading=terms[0],
+                reading_terms=terms,
+                surface_index=surface_index,
+            )
+            if not target_err and len(target_cids) in (1, 2):
+                resolvable.append(cand)
+        if debug_meta is not None:
+            debug_meta["resolvable_nids"] = sorted(int(c.nid) for c in resolvable)
+        if len(resolvable) == 1:
+            if debug_meta is not None:
+                debug_meta["stage"] = "selected_resolvable_unscoped"
+                debug_meta["selected_nid"] = int(resolvable[0].nid)
+            return resolvable[0], "reading_fallback:resolvable_unscoped", related_nids
+        if debug_meta is not None:
+            debug_meta["stage"] = "ambiguous_unscoped"
+        return None, f"ambiguous_reading:{terms[0]}", related_nids
 
     if len(scoped) == 1:
+        if debug_meta is not None:
+            debug_meta["stage"] = "selected_scoped"
+            debug_meta["selected_nid"] = int(scoped[0].nid)
         return scoped[0], "reading_fallback", related_nids
 
     literal_hits = [
         cand for cand in scoped
         if cand.key_literal and cand.key_literal == cloze_surface_literal
     ]
+    if debug_meta is not None:
+        debug_meta["literal_hit_nids"] = sorted(int(c.nid) for c in literal_hits)
     if len(literal_hits) == 1:
+        if debug_meta is not None:
+            debug_meta["stage"] = "selected_literal"
+            debug_meta["selected_nid"] = int(literal_hits[0].nid)
         return literal_hits[0], "reading_fallback:literal", related_nids
 
     resolvable: list[VocabIndexEntry] = []
@@ -1189,15 +1257,23 @@ def _select_entry_by_reading_fallback(
             cand,
             cloze_surface=cloze_surface,
             lemma=lemma,
-            cloze_reading=cloze_reading,
+            cloze_reading=terms[0],
+            reading_terms=terms,
             surface_index=surface_index,
         )
         if not target_err and len(target_cids) in (1, 2):
             resolvable.append(cand)
+    if debug_meta is not None:
+        debug_meta["resolvable_nids"] = sorted(int(c.nid) for c in resolvable)
     if len(resolvable) == 1:
+        if debug_meta is not None:
+            debug_meta["stage"] = "selected_resolvable"
+            debug_meta["selected_nid"] = int(resolvable[0].nid)
         return resolvable[0], "reading_fallback:resolvable", related_nids
 
-    return None, f"ambiguous_reading:{cloze_reading}", related_nids
+    if debug_meta is not None:
+        debug_meta["stage"] = "ambiguous_scoped"
+    return None, f"ambiguous_reading:{terms[0]}", related_nids
 
 
 def _resolve_target_cids(
@@ -1206,10 +1282,12 @@ def _resolve_target_cids(
     cloze_surface: str,
     lemma: str,
     cloze_reading: str = "",
+    reading_terms: list[str] | None = None,
     surface_index: dict[str, list["SurfaceCandidate"]],
 ) -> tuple[list[int], str | None]:
     cloze_eq_lemma = bool(cloze_surface and lemma and _is_honorific_equivalent(cloze_surface, lemma))
-    cloze_eq_reading = bool(cloze_reading and entry.reading_key and cloze_reading == entry.reading_key)
+    reading_pool = _build_reading_terms(cloze_reading, *(reading_terms or []))
+    cloze_eq_reading = bool(entry.reading_key and entry.reading_key in set(reading_pool))
     if (cloze_eq_lemma or cloze_eq_reading) and len(entry.lemma_cids) in (1, 2):
         return list(entry.lemma_cids), None
 
@@ -1230,8 +1308,12 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
         "ok": False,
         "nid": int(nid),
         "cloze_surface": "",
+        "cloze_reading": "",
         "lemma": "",
+        "lemma_reading": "",
         "lemma_status": "",
+        "reading_terms": [],
+        "reading_fallback_debug": {},
         "lookup_term": "",
         "force_nid": None,
         "match_reason": "",
@@ -1270,8 +1352,13 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
 
     lemma, lemma_status = _lemma_from_surface(cloze_surface)
     cloze_reading = _reading_from_surface(cloze_surface)
+    lemma_reading = _reading_from_surface(lemma)
+    reading_terms = _build_reading_terms(cloze_reading, lemma_reading)
     out["lemma"] = lemma
+    out["cloze_reading"] = cloze_reading
+    out["lemma_reading"] = lemma_reading
     out["lemma_status"] = lemma_status
+    out["reading_terms"] = list(reading_terms)
     out["lookup_term"] = lemma
 
     vocab_by_key, vocab_by_nid, vocab_by_reading, surface_index = _build_vocab_mapping_indices(col)
@@ -1348,14 +1435,17 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
                     if entry:
                         reason = "surface_match"
                 if entry is None:
+                    reading_debug: dict[str, Any] = {"phase": "lookup"}
                     entry_by_reading, reading_reason, reading_related = _select_entry_by_reading_fallback(
                         vocab_by_reading=vocab_by_reading,
-                        cloze_reading=cloze_reading,
+                        reading_terms=reading_terms,
                         cloze_surface=cloze_surface,
                         cloze_surface_literal=cloze_surface_literal,
                         lemma=lemma,
                         surface_index=surface_index,
+                        debug_meta=reading_debug,
                     )
+                    out["reading_fallback_debug"] = reading_debug
                     related_nids.update(int(x) for x in reading_related)
                     if entry_by_reading is not None:
                         entry = entry_by_reading
@@ -1375,17 +1465,21 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
         cloze_surface=cloze_surface,
         lemma=lemma,
         cloze_reading=cloze_reading,
+        reading_terms=reading_terms,
         surface_index=surface_index,
     )
     if target_err and force_nid is None:
+        reading_debug_retry: dict[str, Any] = {"phase": "retarget"}
         entry_by_reading, reading_reason, reading_related = _select_entry_by_reading_fallback(
             vocab_by_reading=vocab_by_reading,
-            cloze_reading=cloze_reading,
+            reading_terms=reading_terms,
             cloze_surface=cloze_surface,
             cloze_surface_literal=cloze_surface_literal,
             lemma=lemma,
             surface_index=surface_index,
+            debug_meta=reading_debug_retry,
         )
+        out["reading_fallback_debug"] = reading_debug_retry
         related_nids.update(int(x) for x in reading_related)
         if entry_by_reading is not None and int(entry_by_reading.nid) != int(entry.nid):
             fallback_cids, fallback_err = _resolve_target_cids(
@@ -1393,6 +1487,7 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
                 cloze_surface=cloze_surface,
                 lemma=lemma,
                 cloze_reading=cloze_reading,
+                reading_terms=reading_terms,
                 surface_index=surface_index,
             )
             if not fallback_err:
@@ -1507,6 +1602,8 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
             force_nid = _parse_force_nid(note)
             lemma, lemma_status = _lemma_from_surface(cloze_surface)
             cloze_reading = _reading_from_surface(cloze_surface)
+            lemma_reading = _reading_from_surface(lemma)
+            reading_terms = _build_reading_terms(cloze_reading, lemma_reading)
 
             entry: VocabIndexEntry | None = None
             reason = ""
@@ -1573,7 +1670,7 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
                         if entry is None:
                             entry_by_reading, reading_reason, _reading_related = _select_entry_by_reading_fallback(
                                 vocab_by_reading=vocab_by_reading,
-                                cloze_reading=cloze_reading,
+                                reading_terms=reading_terms,
                                 cloze_surface=cloze_surface,
                                 cloze_surface_literal=cloze_surface_literal,
                                 lemma=lemma,
@@ -1594,12 +1691,13 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
                 cloze_surface=cloze_surface,
                 lemma=lemma,
                 cloze_reading=cloze_reading,
+                reading_terms=reading_terms,
                 surface_index=surface_index,
             )
             if target_err and force_nid is None:
                 entry_by_reading, reading_reason, _reading_related = _select_entry_by_reading_fallback(
                     vocab_by_reading=vocab_by_reading,
-                    cloze_reading=cloze_reading,
+                    reading_terms=reading_terms,
                     cloze_surface=cloze_surface,
                     cloze_surface_literal=cloze_surface_literal,
                     lemma=lemma,
@@ -1611,6 +1709,7 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
                         cloze_surface=cloze_surface,
                         lemma=lemma,
                         cloze_reading=cloze_reading,
+                        reading_terms=reading_terms,
                         surface_index=surface_index,
                     )
                     if not fallback_err:
@@ -1959,99 +2058,127 @@ def _build_settings(ctx):
         example_threshold_spin,
     )
 
-    debug_separator = QFrame()
-    debug_separator.setFrameShape(QFrame.Shape.HLine)
-    debug_separator.setFrameShadow(QFrame.Shadow.Sunken)
-    example_form.addWidget(debug_separator)
+    if bool(config.DEBUG):
+        debug_separator = QFrame()
+        debug_separator.setFrameShape(QFrame.Shape.HLine)
+        debug_separator.setFrameShadow(QFrame.Shadow.Sunken)
+        example_form.addWidget(debug_separator)
 
-    debug_lookup_row = QWidget()
-    debug_lookup_layout = QHBoxLayout()
-    debug_lookup_layout.setContentsMargins(0, 0, 0, 0)
-    debug_lookup_row.setLayout(debug_lookup_layout)
-    mapping_debug_nid_edit = QLineEdit()
-    mapping_debug_nid_edit.setPlaceholderText("Example note NID")
-    mapping_debug_search_btn = QPushButton("Search")
-    debug_lookup_layout.addWidget(mapping_debug_nid_edit)
-    debug_lookup_layout.addWidget(mapping_debug_search_btn)
-    example_form.addRow(
-        _tip_label(
-            "Mapping debug",
-            "Inspect one Example-note mapping by NID and show which lemma is used for matching.",
-        ),
-        debug_lookup_row,
-    )
-
-    def _show_mapping_debug_popup(result: dict[str, Any]) -> None:
-        ok = bool(result.get("ok"))
-        nid = int(result.get("nid", 0) or 0)
-        cloze_surface = str(result.get("cloze_surface", "") or "")
-        lemma = str(result.get("lemma", "") or "")
-        lemma_status = str(result.get("lemma_status", "") or "")
-        lookup_term = str(result.get("lookup_term", "") or "")
-        reason = str(result.get("match_reason", "") or "")
-        target_vocab_nid = result.get("target_vocab_nid")
-        target_cids = [int(x) for x in (result.get("target_cids") or []) if int(x) > 0]
-        err = str(result.get("error", "") or "")
-        related_nids = [int(x) for x in (result.get("related_nids") or []) if int(x) > 0]
-
-        msg = QMessageBox(example_tab)
-        msg.setWindowTitle("Example Unlocker Mapping Debug")
-        msg.setIcon(QMessageBox.Icon.Information if ok else QMessageBox.Icon.Warning)
-        msg.setText("Mapping found." if ok else "No unique mapping found.")
-        lines = [
-            f"Example NID: {nid}",
-            f"Cloze surface: {cloze_surface or '-'}",
-            f"Lemma (ermittelt): {lemma or '-'}",
-            f"Lemma status: {lemma_status or '-'}",
-            f"Abgleichsbegriff: {lookup_term or '-'}",
-            f"Match reason: {reason or '-'}",
-            f"Target vocab NID: {target_vocab_nid if target_vocab_nid is not None else '-'}",
-            f"Target card CIDs: {', '.join(str(x) for x in target_cids) if target_cids else '-'}",
-            f"Error: {err or '-'}",
-            f"Related notes: {', '.join(str(x) for x in related_nids) if related_nids else '-'}",
-        ]
-        msg.setInformativeText("\n".join(lines))
-        filter_btn = msg.addButton("Filter Notes", QMessageBox.ButtonRole.ActionRole)
-        msg.addButton(QMessageBox.StandardButton.Close)
-        msg.exec()
-        if msg.clickedButton() == filter_btn:
-            if _open_browser_for_nids(related_nids):
-                tooltip("Opened Browser filter for related notes.", period=2500)
-            else:
-                tooltip("Failed to open Browser filter.", period=2500)
-
-    def _run_mapping_debug_lookup() -> None:
-        raw = str(mapping_debug_nid_edit.text() or "").strip()
-        if not raw:
-            tooltip("Enter an Example note NID first.", period=2500)
-            return
-        try:
-            nid = int(raw)
-        except Exception:
-            tooltip("NID must be numeric.", period=2500)
-            return
-        if mw is None or mw.col is None:
-            tooltip("No collection loaded.", period=2500)
-            return
-
-        config.reload_config()
-        t0 = time.time()
-        result = _diagnose_example_mapping_by_nid(mw.col, nid)
-        elapsed_ms = int((time.time() - t0) * 1000)
-        log_info(
-            "Example Unlocker mapping lookup",
-            f"nid={nid}",
-            f"ok={bool(result.get('ok'))}",
-            f"lemma={result.get('lemma', '')}",
-            f"reason={result.get('match_reason', '')}",
-            f"target_cids={result.get('target_cids', [])}",
-            f"error={result.get('error', '')}",
-            f"elapsed_ms={elapsed_ms}",
+        debug_lookup_row = QWidget()
+        debug_lookup_layout = QHBoxLayout()
+        debug_lookup_layout.setContentsMargins(0, 0, 0, 0)
+        debug_lookup_row.setLayout(debug_lookup_layout)
+        mapping_debug_nid_edit = QLineEdit()
+        mapping_debug_nid_edit.setPlaceholderText("Example note NID")
+        mapping_debug_search_btn = QPushButton("Search")
+        debug_lookup_layout.addWidget(mapping_debug_nid_edit)
+        debug_lookup_layout.addWidget(mapping_debug_search_btn)
+        example_form.addRow(
+            _tip_label(
+                "Mapping debug",
+                "Inspect one Example-note mapping by NID and show fallback match details.",
+            ),
+            debug_lookup_row,
         )
-        _show_mapping_debug_popup(result)
 
-    mapping_debug_search_btn.clicked.connect(_run_mapping_debug_lookup)
-    mapping_debug_nid_edit.returnPressed.connect(_run_mapping_debug_lookup)
+        def _show_mapping_debug_popup(result: dict[str, Any]) -> None:
+            ok = bool(result.get("ok"))
+            nid = int(result.get("nid", 0) or 0)
+            cloze_surface = str(result.get("cloze_surface", "") or "")
+            cloze_reading = str(result.get("cloze_reading", "") or "")
+            lemma = str(result.get("lemma", "") or "")
+            lemma_reading = str(result.get("lemma_reading", "") or "")
+            lemma_status = str(result.get("lemma_status", "") or "")
+            lookup_term = str(result.get("lookup_term", "") or "")
+            reason = str(result.get("match_reason", "") or "")
+            target_vocab_nid = result.get("target_vocab_nid")
+            target_cids = [int(x) for x in (result.get("target_cids") or []) if int(x) > 0]
+            err = str(result.get("error", "") or "")
+            related_nids = [int(x) for x in (result.get("related_nids") or []) if int(x) > 0]
+            reading_terms = [str(x) for x in (result.get("reading_terms") or []) if str(x or "").strip()]
+            fallback_debug = result.get("reading_fallback_debug")
+            fallback_info = fallback_debug if isinstance(fallback_debug, dict) else {}
+            fb_field = str(fallback_info.get("reading_field", "") or "")
+            fb_phase = str(fallback_info.get("phase", "") or "")
+            fb_stage = str(fallback_info.get("stage", "") or "")
+            fb_terms = [str(x) for x in (fallback_info.get("reading_terms") or []) if str(x or "").strip()]
+            fb_candidates = [int(x) for x in (fallback_info.get("candidate_nids") or []) if int(x) > 0]
+            fb_scoped = [int(x) for x in (fallback_info.get("scoped_nids") or []) if int(x) > 0]
+            fb_rejected = [int(x) for x in (fallback_info.get("rejected_scope_nids") or []) if int(x) > 0]
+            fb_literals = [int(x) for x in (fallback_info.get("literal_hit_nids") or []) if int(x) > 0]
+            fb_resolvable = [int(x) for x in (fallback_info.get("resolvable_nids") or []) if int(x) > 0]
+            fb_selected = int(fallback_info.get("selected_nid", 0) or 0)
+
+            msg = QMessageBox(example_tab)
+            msg.setWindowTitle("Example Unlocker Mapping Debug")
+            msg.setIcon(QMessageBox.Icon.Information if ok else QMessageBox.Icon.Warning)
+            msg.setText("Mapping found." if ok else "No unique mapping found.")
+            lines = [
+                f"Example NID: {nid}",
+                f"Cloze surface: {cloze_surface or '-'}",
+                f"Cloze reading: {cloze_reading or '-'}",
+                f"Lemma (ermittelt): {lemma or '-'}",
+                f"Lemma reading: {lemma_reading or '-'}",
+                f"Lemma status: {lemma_status or '-'}",
+                f"Reading terms: {', '.join(reading_terms) if reading_terms else '-'}",
+                f"Abgleichsbegriff: {lookup_term or '-'}",
+                f"Match reason: {reason or '-'}",
+                f"Target vocab NID: {target_vocab_nid if target_vocab_nid is not None else '-'}",
+                f"Target card CIDs: {', '.join(str(x) for x in target_cids) if target_cids else '-'}",
+                f"Error: {err or '-'}",
+                f"Fallback field: {fb_field or '-'}",
+                f"Fallback phase/stage: {fb_phase or '-'} / {fb_stage or '-'}",
+                f"Fallback terms: {', '.join(fb_terms) if fb_terms else '-'}",
+                f"Fallback candidates: {', '.join(str(x) for x in fb_candidates) if fb_candidates else '-'}",
+                f"Fallback scoped: {', '.join(str(x) for x in fb_scoped) if fb_scoped else '-'}",
+                f"Fallback rejected by scope: {', '.join(str(x) for x in fb_rejected) if fb_rejected else '-'}",
+                f"Fallback literal hits: {', '.join(str(x) for x in fb_literals) if fb_literals else '-'}",
+                f"Fallback resolvable: {', '.join(str(x) for x in fb_resolvable) if fb_resolvable else '-'}",
+                f"Fallback selected: {fb_selected if fb_selected > 0 else '-'}",
+                f"Related notes: {', '.join(str(x) for x in related_nids) if related_nids else '-'}",
+            ]
+            msg.setInformativeText("\n".join(lines))
+            filter_btn = msg.addButton("Filter Notes", QMessageBox.ButtonRole.ActionRole)
+            msg.addButton(QMessageBox.StandardButton.Close)
+            msg.exec()
+            if msg.clickedButton() == filter_btn:
+                if _open_browser_for_nids(related_nids):
+                    tooltip("Opened Browser filter for related notes.", period=2500)
+                else:
+                    tooltip("Failed to open Browser filter.", period=2500)
+
+        def _run_mapping_debug_lookup() -> None:
+            raw = str(mapping_debug_nid_edit.text() or "").strip()
+            if not raw:
+                tooltip("Enter an Example note NID first.", period=2500)
+                return
+            try:
+                nid = int(raw)
+            except Exception:
+                tooltip("NID must be numeric.", period=2500)
+                return
+            if mw is None or mw.col is None:
+                tooltip("No collection loaded.", period=2500)
+                return
+
+            config.reload_config()
+            t0 = time.time()
+            result = _diagnose_example_mapping_by_nid(mw.col, nid)
+            elapsed_ms = int((time.time() - t0) * 1000)
+            log_info(
+                "Example Unlocker mapping lookup",
+                f"nid={nid}",
+                f"ok={bool(result.get('ok'))}",
+                f"lemma={result.get('lemma', '')}",
+                f"reason={result.get('match_reason', '')}",
+                f"target_cids={result.get('target_cids', [])}",
+                f"error={result.get('error', '')}",
+                f"elapsed_ms={elapsed_ms}",
+            )
+            _show_mapping_debug_popup(result)
+
+        mapping_debug_search_btn.clicked.connect(_run_mapping_debug_lookup)
+        mapping_debug_nid_edit.returnPressed.connect(_run_mapping_debug_lookup)
 
     example_layout.addStretch(1)
 

@@ -172,22 +172,28 @@ an additional fallback via normalized reading (`VocabReading`-based index) and
 only accepts candidates that also pass key/literal constraints.
 The fallback reading field is configurable via `example_gate.reading_field`
 (Settings label: `Reading fallback field`, default `VocabReading`).
+Reading fallback now evaluates both readings (`cloze` + derived `lemma`) and,
+if strict key-scope is empty, allows a single resolvable candidate from the
+reading set to pass (`reading_fallback:resolvable_unscoped`).
 For `suru` verb forms that tokenize ambiguously (for example `残業します`),
 the resolver adds a strict `...する` fallback and only accepts candidates that
 are explicitly typed as `suru` verbs in runtime form metadata.
-Verb/adjective token handling now also accepts up to 3 tokens (instead of only 2)
+Verb/adjective token handling now also accepts up to 4 tokens (instead of only 2)
 before returning `ambiguous_tokenization`.
 
 ### Mapping debug lookup (Settings)
 
-In the **Example Unlocker** settings tab, there is a dedicated **Mapping debug** row:
+In the **Example Unlocker** settings tab, there is a dedicated **Mapping debug** row
+(visible only when Debug mode is enabled):
 
 * Enter an **example note NID**
 * Click **Search**
 * A popup shows:
   * cloze surface
+  * cloze/lemma readings and reading terms
   * detected lemma
   * the exact lookup term used for matching
+  * fallback stage details (candidates, scope rejects, resolvable set, selected NID)
   * match reason and target note/card IDs
 * From the popup, **Filter Notes** opens the Browser with related note IDs (example + mapping candidates).
 
