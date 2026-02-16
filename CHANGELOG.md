@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased - 2026-02-16
+
+### Major Updates
+- None.
+
+### Minor Updates
+- Refactored root `config.py` to module-agnostic core runtime/config handling only.
+- Extracted config schema migrations into dedicated `config_migrations.py`.
+- Added migration validation script `scripts/check_config_migrations.py`.
+- Added documentation section `Configuration Architecture` to `README.md`.
+
+### Fixes
+- Removed UTF-8 BOM from `config.py` and `config_migrations.py` to comply with Anki config-loader guardrail.
+
 ## 1.0.0-beta.1 - 2026-02-14
 
 ### Major Updates

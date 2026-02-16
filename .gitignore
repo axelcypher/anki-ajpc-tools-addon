@@ -3,7 +3,13 @@
 /build/
 /dist/
 /.vscode/
-/.devdocs/
+/.devdocs/*
+!/.devdocs/
+!/.devdocs/SESSION_LOG.md
+!/.devdocs/logging.md
+!/.devdocs/REFERENCE.md
+!/.devdocs/ARCHITECTURE_GUIDE.md
+!/.devdocs/STYLING_GUIDE.md
 /vendor/
 
 *.pyc

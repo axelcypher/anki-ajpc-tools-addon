@@ -296,6 +296,7 @@ Other useful targets:
 make vendor-check
 make vendor-all
 make vendor-clean
+python scripts/check_config_migrations.py
 ```
 
 This creates platform-separated vendor folders used by runtime loading:
