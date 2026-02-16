@@ -162,6 +162,8 @@ Additionally, single-kanji cloze surfaces are protected from semantic lemma rema
 (for example `歳 -> 年`) by falling back to the original surface as lookup term.
 When multiple lemma candidates exist, the module now tries a literal cloze-key
 disambiguation first (for example `五[ご]` vs `五[いつ]`) before emitting `ambiguous_lemma`.
+Spacing inserted before kanji for furigana parsing is normalized away on both sides
+(cloze extraction and vocab key indexing) before matching.
 
 ### Mapping debug lookup (Settings)
 

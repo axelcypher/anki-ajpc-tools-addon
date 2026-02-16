@@ -274,6 +274,7 @@ def _norm_literal_text(s: str) -> str:
 
 
 _CLOZE_RE = re.compile(r"\{\{c\d+::(.*?)(?:::(.*?))?\}\}", re.DOTALL)
+_CLOZE_SPACING_RE = re.compile(r"\s+(?=[\u3400-\u9FFF\[])", re.UNICODE)
 _FORCE_NID_TAG_RE = re.compile(r"^force_nid:(\d+)$", re.IGNORECASE)
 _FORCE_NID_VAL_RE = re.compile(r"(\d+)")
 
@@ -449,6 +450,10 @@ def _parse_force_nid(note) -> int | None:
     return None
 
 
+def _normalize_cloze_spacing(s: str) -> str:
+    return _CLOZE_SPACING_RE.sub("", s or "")
+
+
 def _extract_first_cloze_target_literal(note) -> str:
     try:
         for fname in note.keys():
@@ -458,7 +463,7 @@ def _extract_first_cloze_target_literal(note) -> str:
             m = _CLOZE_RE.search(raw)
             if not m:
                 continue
-            return _norm_literal_text(m.group(1) or "")
+            return _norm_literal_text(_normalize_cloze_spacing(m.group(1) or ""))
     except Exception:
         pass
     return ""
@@ -881,10 +886,11 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
             if config.EXAMPLE_KEY_FIELD not in note:
                 continue
 
-            key = norm_text(str(note[config.EXAMPLE_KEY_FIELD] or ""))
+            key_src = _normalize_cloze_spacing(str(note[config.EXAMPLE_KEY_FIELD] or ""))
+            key = norm_text(key_src)
             if not key:
                 continue
-            key_literal = _norm_literal_text(str(note[config.EXAMPLE_KEY_FIELD] or ""))
+            key_literal = _norm_literal_text(key_src)
 
             marker_map = _template_ord_form_markers(nt_id)
             lemma_map = _template_ord_lemma_markers(nt_id)

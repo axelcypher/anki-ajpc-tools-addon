@@ -29,6 +29,7 @@
 - Example Unlocker target-card resolution now supports up to 2 matched cards and requires threshold pass on all matched targets; added `data-lemma` marker preference for `cloze == lemma` cases.
 - Added single-kanji lemma guard in Example Unlocker to prevent semantic remaps like `歳 -> 年` from overriding the original surface lookup term.
 - Added Example Unlocker literal key disambiguation for ambiguous lemma matches (uses raw cloze text, e.g. `五[ご]` vs `五[いつ]`, before failing with `ambiguous_lemma`).
+- Normalized furigana parser spacing before kanji on both cloze and vocab-key paths in Example Unlocker to avoid false first-token truncation (e.g. `お 洒落[...]` -> `お洒落[...]` for matching).
 
 ## 1.0.0-beta.1 - 2026-02-14
 

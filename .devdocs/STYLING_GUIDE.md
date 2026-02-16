@@ -15,3 +15,4 @@
 - 2026-02-16 21:55:00: Example Unlocker target-card resolution was updated for up-to-2 targets plus `data-lemma` preference; no CSS classes/ids/layout styling contracts changed.
 - 2026-02-16 22:08:00: Example Unlocker single-kanji lemma guard added (runtime matching only); no CSS classes/ids/layout styling contracts changed.
 - 2026-02-16 22:16:00: Example Unlocker literal cloze-key disambiguation added (runtime matching only); no CSS classes/ids/layout styling contracts changed.
+- 2026-02-16 22:26:00: Example Unlocker furigana-spacing normalization added in matching pipeline (runtime only); no CSS classes/ids/layout styling contracts changed.
