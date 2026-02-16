@@ -69,3 +69,4 @@
 - Family Priority fallback searches should only emit hard `ERROR` when all query variants fail; individual variant failures stay on `WARN`.
 - Example Unlocker target resolution supports one or two target cards; if two targets are resolved, unlock gating must require both stabilities to pass threshold. `data-lemma` is the preferred selector when `cloze == lemma`.
 - Example Unlocker lemma normalization must preserve single-kanji surfaces when lemma resolves to a different single CJK ideograph (single-kanji remap guard).
+- Example Unlocker ambiguous-lemma path should attempt literal cloze-vs-key disambiguation (`key_literal`) before failing hard, to preserve furigana-distinguished homographs.

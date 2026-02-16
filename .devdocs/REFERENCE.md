@@ -23,6 +23,7 @@
 - 2026-02-16 21:40:00: Family Priority family-id search logging now distinguishes fallback stages: `WARN` for failed single attempts, `ERROR` only when all query variants fail.
 - 2026-02-16 21:55:00: Example Unlocker mapping now resolves up to 2 target cards per example; unlock requires threshold pass on all resolved targets. `data-lemma` template marker is preferred when `cloze == lemma`.
 - 2026-02-16 22:08:00: Example Unlocker lemma path now includes a single-kanji guard (`single_kanji_surface_guard`) to avoid semantic remaps between distinct single CJK ideographs.
+- 2026-02-16 22:16:00: Example Unlocker ambiguous-lemma handling now performs a literal cloze-to-key disambiguation pass (`key_literal`) before returning `ambiguous_lemma`.
 
 ## Debug Clarification Status
 - 2026-02-16 19:34:30: No open debug investigation in this change set.

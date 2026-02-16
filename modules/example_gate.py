@@ -266,6 +266,13 @@ def norm_text(s: str) -> str:
     return s
 
 
+def _norm_literal_text(s: str) -> str:
+    out = _strip_html(s or "")
+    out = out.strip()
+    out = unicodedata.normalize("NFC", out)
+    return out
+
+
 _CLOZE_RE = re.compile(r"\{\{c\d+::(.*?)(?:::(.*?))?\}\}", re.DOTALL)
 _FORCE_NID_TAG_RE = re.compile(r"^force_nid:(\d+)$", re.IGNORECASE)
 _FORCE_NID_VAL_RE = re.compile(r"(\d+)")
@@ -442,7 +449,7 @@ def _parse_force_nid(note) -> int | None:
     return None
 
 
-def _extract_first_cloze_target(note) -> str:
+def _extract_first_cloze_target_literal(note) -> str:
     try:
         for fname in note.keys():
             raw = str(note[fname] or "")
@@ -451,10 +458,14 @@ def _extract_first_cloze_target(note) -> str:
             m = _CLOZE_RE.search(raw)
             if not m:
                 continue
-            return norm_text(_strip_html(m.group(1) or ""))
+            return _norm_literal_text(m.group(1) or "")
     except Exception:
         pass
     return ""
+
+
+def _extract_first_cloze_target(note) -> str:
+    return norm_text(_extract_first_cloze_target_literal(note))
 
 
 def _mapping_level(error_msg: str) -> str:
@@ -873,6 +884,7 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
             key = norm_text(str(note[config.EXAMPLE_KEY_FIELD] or ""))
             if not key:
                 continue
+            key_literal = _norm_literal_text(str(note[config.EXAMPLE_KEY_FIELD] or ""))
 
             marker_map = _template_ord_form_markers(nt_id)
             lemma_map = _template_ord_lemma_markers(nt_id)
@@ -898,6 +910,7 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
             entry = VocabIndexEntry(
                 nid=int(nid),
                 key=key,
+                key_literal=key_literal,
                 note_type_id=nt_id,
                 candidate_cids=sorted(set(candidate_cids)),
                 lemma_cids=sorted(set(lemma_cids)),
@@ -974,7 +987,8 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
         out["error"] = "note_not_found"
         return out
 
-    cloze_surface = _extract_first_cloze_target(note)
+    cloze_surface_literal = _extract_first_cloze_target_literal(note)
+    cloze_surface = norm_text(cloze_surface_literal)
     out["cloze_surface"] = cloze_surface
     if not cloze_surface:
         out["error"] = "missing_cloze_target"
@@ -1008,11 +1022,16 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
             entry = by_lemma[0]
             reason = f"lemma:{lemma_status}"
         elif len(by_lemma) > 1:
-            for cand in by_lemma:
-                related_nids.add(int(cand.nid))
-            out["error"] = f"ambiguous_lemma:{lemma}"
-            out["related_nids"] = sorted(related_nids)
-            return out
+            literal_hits = [cand for cand in by_lemma if cand.key_literal and cand.key_literal == cloze_surface_literal]
+            if len(literal_hits) == 1:
+                entry = literal_hits[0]
+                reason = f"lemma:{lemma_status}:literal"
+            else:
+                for cand in by_lemma:
+                    related_nids.add(int(cand.nid))
+                out["error"] = f"ambiguous_lemma:{lemma}"
+                out["related_nids"] = sorted(related_nids)
+                return out
         else:
             surface_hits = surface_index.get(cloze_surface, [])
             uniq_nids = sorted({h.nid for h in surface_hits})
@@ -1068,6 +1087,7 @@ def _open_browser_for_nids(nids: Iterable[int]) -> bool:
 class VocabIndexEntry:
     nid: int
     key: str
+    key_literal: str
     note_type_id: int
     candidate_cids: list[int]
     lemma_cids: list[int]
@@ -1126,7 +1146,8 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
     for i, nid in enumerate(ex_nids):
         try:
             note = col.get_note(nid)
-            cloze_surface = _extract_first_cloze_target(note)
+            cloze_surface_literal = _extract_first_cloze_target_literal(note)
+            cloze_surface = norm_text(cloze_surface_literal)
             if not cloze_surface:
                 mapping_errors.append((int(nid), "missing_cloze_target"))
                 continue
@@ -1149,8 +1170,16 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
                     entry = by_lemma[0]
                     reason = f"lemma:{lemma_status}"
                 elif len(by_lemma) > 1:
-                    mapping_errors.append((int(nid), f"ambiguous_lemma:{lemma}"))
-                    continue
+                    literal_hits = [
+                        cand for cand in by_lemma
+                        if cand.key_literal and cand.key_literal == cloze_surface_literal
+                    ]
+                    if len(literal_hits) == 1:
+                        entry = literal_hits[0]
+                        reason = f"lemma:{lemma_status}:literal"
+                    else:
+                        mapping_errors.append((int(nid), f"ambiguous_lemma:{lemma}"))
+                        continue
                 else:
                     surface_hits = surface_index.get(cloze_surface, [])
                     uniq_nids = sorted({h.nid for h in surface_hits})

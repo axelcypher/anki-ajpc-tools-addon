@@ -28,6 +28,7 @@
 - Improved Example Unlocker mapping diagnostics: warning/info summaries now include reason buckets and `nid:reason` examples.
 - Example Unlocker target-card resolution now supports up to 2 matched cards and requires threshold pass on all matched targets; added `data-lemma` marker preference for `cloze == lemma` cases.
 - Added single-kanji lemma guard in Example Unlocker to prevent semantic remaps like `歳 -> 年` from overriding the original surface lookup term.
+- Added Example Unlocker literal key disambiguation for ambiguous lemma matches (uses raw cloze text, e.g. `五[ご]` vs `五[いつ]`, before failing with `ambiguous_lemma`).
 
 ## 1.0.0-beta.1 - 2026-02-14
 

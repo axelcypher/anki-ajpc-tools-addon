@@ -160,6 +160,8 @@ unlocking requires that **both** target cards meet the configured threshold. For
 cards marked with `data-lemma` are preferred for this resolution path.
 Additionally, single-kanji cloze surfaces are protected from semantic lemma remaps
 (for example `歳 -> 年`) by falling back to the original surface as lookup term.
+When multiple lemma candidates exist, the module now tries a literal cloze-key
+disambiguation first (for example `五[ご]` vs `五[いつ]`) before emitting `ambiguous_lemma`.
 
 ### Mapping debug lookup (Settings)
 
