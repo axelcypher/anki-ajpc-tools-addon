@@ -3,7 +3,11 @@
 ## Unreleased - 2026-02-16
 
 ### Major Updates
-- None.
+- Two-stage refactor started (main addon stage complete):
+  - Link-Core helper ownership moved into `modules/_link_core/*`.
+  - `family_gate` hard-renamed to `family_priority` (module id/provider id/config namespace).
+  - Restart extracted into dedicated `modules/restart.py` module.
+  - Main-addon editor bridge API hardcut (`_ajpc_note_editor_api` removed, editor keys removed from `_ajpc_graph_api`).
 
 ### Minor Updates
 - Refactored root `config.py` to module-agnostic core runtime/config handling only.
@@ -11,9 +15,13 @@
 - Added migration validation script `scripts/check_config_migrations.py`.
 - Added documentation section `Configuration Architecture` to `README.md`.
 - Promoted `general`, `info`, and `debug` from dynamic `modules/` entries to fixed architecture components in `core/`.
+- Browser graph helper initialization is now performed by `modules/link_core.py` (`install_browser_graph()`), while keeping List/Graph/Deps editor buttons active.
+- Added neutral deck-stats registry (`modules/_widgets/deck_stats_registry.py`) and switched widget providers to module registration.
 
 ### Fixes
 - Removed UTF-8 BOM from `config.py` and `config_migrations.py` to comply with Anki config-loader guardrail.
+- Removed obsolete debug setting `debug.show_restart_button`.
+- Removed tracked restart build artifacts from version control and ignored `restart_helper/build/`.
 
 ## 1.0.0-beta.1 - 2026-02-14
 

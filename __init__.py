@@ -7,7 +7,7 @@ from . import config, logging
 from . import config_migrations
 from .core import debug as core_debug
 from .core import general as core_general
-from .api import graph_api, note_editor_api, settings_api
+from .api import graph_api, settings_api
 from .modules import discover_modules, iter_run_items, iter_settings_items
 from .ui import menu
 
@@ -65,13 +65,11 @@ modules = discover_modules()
 
 settings_api.install_settings_api()
 graph_api.install_graph_api()
-note_editor_api.install_note_editor_api()
 
 
 def _on_profile_open(*_args, **_kwargs) -> None:
     settings_api.install_settings_api()
     graph_api.install_graph_api()
-    note_editor_api.install_note_editor_api()
 
 
 gui_hooks.profile_did_open.append(_on_profile_open)

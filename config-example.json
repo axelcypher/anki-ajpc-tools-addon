@@ -3,7 +3,6 @@
     "enabled": false,
     "level": "debug",
     "verify_suspension": false,
-    "show_restart_button": false,
     "module_logs": {},
     "module_levels": {},
     "watch_nids": []
@@ -22,7 +21,7 @@
   "installer": {
     "notetypes_installed": false
   },
-  "family_gate": {
+  "family_priority": {
     "enabled": true,
     "run_on_sync": true,
     "link_family_member": false,

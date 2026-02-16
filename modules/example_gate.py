@@ -28,6 +28,7 @@ from aqt.utils import tooltip
 
 from .. import logging as core_logging
 from . import ModuleSpec
+from ._widgets.deck_stats_registry import count_unsuspended_cards, register_provider
 
 ADDON_DIR = os.path.dirname(os.path.dirname(__file__))
 CONFIG_PATH = os.path.join(ADDON_DIR, "config.json")
@@ -1268,8 +1269,44 @@ def _enabled_example() -> bool:
     return bool(config.RUN_ON_UI and config.EXAMPLE_GATE_ENABLED)
 
 
+def _deck_stats_provider_example_gate() -> dict[str, Any]:
+    reload_config()
+    enabled = bool(EXAMPLE_GATE_ENABLED)
+    tracked: set[int] = set()
+    if enabled and mw is not None and getattr(mw, "col", None):
+        ex_deck = str(EXAMPLE_DECK or "").strip()
+        if ex_deck:
+            ex_nids = note_ids_for_deck(mw.col, ex_deck)
+            apply_all = bool(EX_APPLY_ALL_CARDS)
+            for nid in ex_nids:
+                try:
+                    note = mw.col.get_note(int(nid))
+                except Exception:
+                    continue
+                cloze_surface = _extract_first_cloze_target(note)
+                if not cloze_surface:
+                    continue
+                cards = note.cards()
+                if not cards:
+                    continue
+                if apply_all:
+                    for card in cards:
+                        tracked.add(int(card.id))
+                else:
+                    tracked.add(int(cards[0].id))
+    return {
+        "label": "Examples unlocked",
+        "enabled": enabled,
+        "tracked": len(tracked),
+        "free": count_unsuspended_cards(tracked),
+        "order": 30,
+    }
+
+
 def _init() -> None:
     from aqt import gui_hooks, mw
+
+    register_provider("example_gate", _deck_stats_provider_example_gate, order=30)
 
     def _on_sync_start() -> None:
         run_example_gate(reason="sync")

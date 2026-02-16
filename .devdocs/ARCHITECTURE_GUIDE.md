@@ -18,6 +18,21 @@
   - Must expose `MODULE = ModuleSpec(...)` for dynamic discovery.
   - Own module-local config proxy/runtime keys.
   - Read module-specific settings from config JSON paths.
+  - `browser_graph` is no longer a dynamic module; it is owned by `modules/link_core.py` via `modules/_link_core/browser_graph.py`.
+- `modules/_link_core/*.py`
+  - Link-Core-owned helper package.
+  - Hosts renderer/editor/browser sidepanel helpers:
+    - `renderer.py`
+    - `note_editor.py`
+    - `force_graph_view.py`
+    - `dep_tree_view.py`
+    - `browser_graph.py`
+- `modules/restart.py`
+  - Dedicated Restart module with top-toolbar action lifecycle.
+  - Restart is no longer part of `core/debug.py`.
+- `modules/_widgets/deck_stats_registry.py`
+  - Neutral deck-stats provider registry.
+  - Feature modules register provider callbacks; renderer module (`onigiri_widgets`) stays decoupled from module internals.
 
 ## Settings Boundaries
 - `ui/settings.py` always builds core tabs first in fixed order:
@@ -38,6 +53,11 @@
 4. `config.reload_config()`
 5. Core hooks init (`core_general.init()`, `core_debug.init()`)
 6. Dynamic module init (`discover_modules()` loop)
+
+## API Boundaries
+- Removed public editor API endpoint `_ajpc_note_editor_api`.
+- `_ajpc_graph_api` no longer exposes editor fallback functions; graph/editor opening is handled by module-local runtime paths.
+- Family provider id was hard-cut from `family_gate` to `family_priority` for Link Core provider contracts.
 
 ## Runtime Guardrails
 - Config files must be UTF-8 without BOM.

@@ -15,8 +15,8 @@ CONFIG_PATH = os.path.join(ADDON_DIR, "config.json")
 CFG: dict[str, Any] = {}
 DEBUG = False
 
-FAMILY_GATE_ENABLED = True
-FAMILY_GATE_RUN_ON_SYNC = True
+FAMILY_PRIORITY_ENABLED = True
+FAMILY_PRIORITY_RUN_ON_SYNC = True
 FAMILY_LINK_ENABLED = False
 FAMILY_FIELD = "FamilyID"
 FAMILY_SEP = ";"
@@ -95,7 +95,7 @@ def _cfg_set(cfg: dict[str, Any], path: str, value: Any) -> None:
 
 def reload_config() -> None:
     global CFG, DEBUG
-    global FAMILY_GATE_ENABLED, FAMILY_GATE_RUN_ON_SYNC, FAMILY_LINK_ENABLED
+    global FAMILY_PRIORITY_ENABLED, FAMILY_PRIORITY_RUN_ON_SYNC, FAMILY_LINK_ENABLED
     global FAMILY_FIELD, FAMILY_SEP, FAMILY_DEFAULT_PRIO, FAMILY_NOTE_TYPES
     global CARD_STAGES_ENABLED, CARD_STAGES_RUN_ON_SYNC, CARD_STAGES_NOTE_TYPES
     global EXAMPLE_GATE_ENABLED, EXAMPLE_GATE_RUN_ON_SYNC, VOCAB_DECK, EXAMPLE_DECK, VOCAB_KEY_FIELD, EXAMPLE_KEY_FIELD
@@ -119,18 +119,18 @@ def reload_config() -> None:
     else:
         DEBUG = bool(_dbg)
 
-    FAMILY_GATE_ENABLED = bool(cfg_get("family_gate.enabled", True))
-    FAMILY_GATE_RUN_ON_SYNC = bool(cfg_get("family_gate.run_on_sync", True))
-    FAMILY_LINK_ENABLED = bool(cfg_get("family_gate.link_family_member", False))
-    FAMILY_FIELD = str(cfg_get("family_gate.family.field", "FamilyID"))
-    FAMILY_SEP = str(cfg_get("family_gate.family.separator", ";"))
-    FAMILY_DEFAULT_PRIO = int(cfg_get("family_gate.family.default_prio", 0))
-    FAMILY_NOTE_TYPES = cfg_get("family_gate.note_types", {}) or {}
+    FAMILY_PRIORITY_ENABLED = bool(cfg_get("family_priority.enabled", True))
+    FAMILY_PRIORITY_RUN_ON_SYNC = bool(cfg_get("family_priority.run_on_sync", True))
+    FAMILY_LINK_ENABLED = bool(cfg_get("family_priority.link_family_member", False))
+    FAMILY_FIELD = str(cfg_get("family_priority.family.field", "FamilyID"))
+    FAMILY_SEP = str(cfg_get("family_priority.family.separator", ";"))
+    FAMILY_DEFAULT_PRIO = int(cfg_get("family_priority.family.default_prio", 0))
+    FAMILY_NOTE_TYPES = cfg_get("family_priority.note_types", {}) or {}
 
     CARD_STAGES_ENABLED = bool(cfg_get("card_stages.enabled", True))
     CARD_STAGES_RUN_ON_SYNC = bool(cfg_get("card_stages.run_on_sync", True))
     CARD_STAGES_NOTE_TYPES = cfg_get(
-        "card_stages.note_types", cfg_get("family_gate.note_types", {})
+        "card_stages.note_types", cfg_get("family_priority.note_types", {})
     ) or {}
 
     EXAMPLE_GATE_ENABLED = bool(cfg_get("example_gate.enabled", True))
@@ -338,9 +338,9 @@ def get_graph_config(*, reload: bool = True) -> dict[str, Any]:
             "module_logs": dict(getattr(config, "DEBUG_MODULE_LOGS", {}) or {}),
             "module_levels": dict(getattr(config, "DEBUG_MODULE_LEVELS", {}) or {}),
         },
-        "family_gate": {
-            "enabled": bool(config.FAMILY_GATE_ENABLED),
-            "run_on_sync": bool(config.FAMILY_GATE_RUN_ON_SYNC),
+        "family_priority": {
+            "enabled": bool(config.FAMILY_PRIORITY_ENABLED),
+            "run_on_sync": bool(config.FAMILY_PRIORITY_RUN_ON_SYNC),
             "link_family_member": bool(config.FAMILY_LINK_ENABLED),
             "family_field": str(config.FAMILY_FIELD or ""),
             "separator": str(config.FAMILY_SEP or ";"),
@@ -402,7 +402,7 @@ def get_graph_config(*, reload: bool = True) -> dict[str, Any]:
 
 def _provider_category_for_graph_api(provider_id: str) -> str:
     pid = str(provider_id or "").strip().lower()
-    if pid == "family_gate" or pid.startswith("family_") or "family" in pid:
+    if pid == "family_priority" or pid.startswith("family_") or "family" in pid:
         return "family"
     if (
         pid == "mass_linker"
@@ -809,26 +809,6 @@ def get_link_provider_edges(
     return {"providers": providers_meta, "edges": edges}
 
 
-def _open_note_editor_for_graph_api(
-    nid: int, *, title: str = "AJpC Note Editor"
-) -> bool:
-    try:
-        from .note_editor_api import open_editor as _open_editor
-
-        return bool(_open_editor(int(nid), title=str(title or "AJpC Note Editor")))
-    except Exception:
-        return False
-
-
-def _is_note_editor_open_for_graph_api(nid: int) -> bool:
-    try:
-        from .note_editor_api import is_open as _is_open
-
-        return bool(_is_open(int(nid)))
-    except Exception:
-        return False
-
-
 def _resolve_dep_tree_nid(
     nid: int | None = None,
     *,
@@ -859,17 +839,17 @@ def get_dependency_tree(
         return {"nodes": [], "edges": [], "current_nid": 0}
 
     try:
-        from ..modules import browser_graph as _bg
+        from ..modules._link_core import dep_tree as _dep_tree
     except Exception:
         return {"nodes": [], "edges": [], "current_nid": int(target_nid)}
 
     try:
-        chain_nodes, chain_edges, chain_labels = _bg._family_prio_chain(int(target_nid))  # noqa: SLF001 - shared internal data builder
+        chain_nodes, chain_edges, chain_labels = _dep_tree.build_dep_tree_raw(int(target_nid))
     except Exception:
         return {"nodes": [], "edges": [], "current_nid": int(target_nid)}
 
     try:
-        payload = _bg._build_prio_chain_payload(  # noqa: SLF001 - shared internal data builder
+        payload = _dep_tree.build_dep_tree_payload(
             int(target_nid),
             chain_nodes,
             chain_edges,
@@ -897,15 +877,9 @@ def get_dependency_tree(
         vw = 0
     if vw > 0:
         try:
-            payload["estimated_height"] = int(
-                _bg._estimate_prio_needed_height(  # noqa: SLF001 - shared internal data builder
-                    int(target_nid),
-                    chain_nodes,
-                    chain_edges,
-                    chain_labels,
-                    int(vw),
-                )
-            )
+            payload["estimated_height"] = int(_dep_tree.estimate_dep_tree_height(
+                int(target_nid), chain_nodes, chain_edges, chain_labels, int(vw)
+            ))
         except Exception:
             payload["estimated_height"] = 0
 
@@ -916,14 +890,6 @@ def _install_graph_api() -> None:
     if mw is None:
         logging.warn("install skipped: mw missing", source="graph_api")
         return
-    editor_api = {
-        "open_note_editor": _open_note_editor_for_graph_api,
-        "open_editor_for_note": _open_note_editor_for_graph_api,
-        "open_editor": _open_note_editor_for_graph_api,
-        "edit_note": _open_note_editor_for_graph_api,
-        "show_note_editor": _open_note_editor_for_graph_api,
-        "is_open": _is_note_editor_open_for_graph_api,
-    }
     mw._ajpc_graph_api = {
         "get_config": get_graph_config,
         "get_dependency_tree": get_dependency_tree,
@@ -931,15 +897,6 @@ def _install_graph_api() -> None:
         "get_link_provider_edges": get_link_provider_edges,
         "get_provider_link_edges": get_link_provider_edges,
         "version": __version__,
-        # Keep editor entry points on graph API so dependent add-ons can
-        # open the AJPC popup editor with its integrated side panel.
-        "open_note_editor": _open_note_editor_for_graph_api,
-        "open_editor_for_note": _open_note_editor_for_graph_api,
-        "open_editor": _open_note_editor_for_graph_api,
-        "edit_note": _open_note_editor_for_graph_api,
-        "show_note_editor": _open_note_editor_for_graph_api,
-        "is_note_editor_open": _is_note_editor_open_for_graph_api,
-        "editor": editor_api,
     }
     logging.dbg(
         "graph api installed",

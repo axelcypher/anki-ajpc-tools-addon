@@ -31,6 +31,7 @@ from aqt.utils import tooltip
 
 from .. import logging as core_logging
 from . import ModuleSpec
+from ._widgets.deck_stats_registry import count_unsuspended_cards, register_provider
 
 ADDON_DIR = os.path.dirname(os.path.dirname(__file__))
 CONFIG_PATH = os.path.join(ADDON_DIR, "config.json")
@@ -1768,8 +1769,37 @@ def _enabled_kanji() -> bool:
     return bool(config.RUN_ON_UI and config.KANJI_GATE_ENABLED)
 
 
+def _deck_stats_provider_kanji_gate() -> dict[str, Any]:
+    reload_config()
+    enabled = bool(KANJI_GATE_ENABLED)
+    tracked: set[int] = set()
+    if enabled and mw is not None and getattr(mw, "col", None):
+        note_type_ids: set[str] = set(str(x) for x in (KANJI_GATE_VOCAB_NOTE_TYPES or {}).keys())
+        if str(KANJI_GATE_KANJI_NOTE_TYPE or "").strip():
+            note_type_ids.add(str(KANJI_GATE_KANJI_NOTE_TYPE).strip())
+        if str(KANJI_GATE_RADICAL_NOTE_TYPE or "").strip():
+            note_type_ids.add(str(KANJI_GATE_RADICAL_NOTE_TYPE).strip())
+        for nt_id in note_type_ids:
+            for nid in note_ids_for_note_types(mw.col, [nt_id]):
+                try:
+                    note = mw.col.get_note(int(nid))
+                except Exception:
+                    continue
+                for card in note.cards():
+                    tracked.add(int(card.id))
+    return {
+        "label": "Kanji unlocked",
+        "enabled": enabled,
+        "tracked": len(tracked),
+        "free": count_unsuspended_cards(tracked),
+        "order": 40,
+    }
+
+
 def _init() -> None:
     from aqt import gui_hooks, mw as _mw
+
+    register_provider("kanji_gate", _deck_stats_provider_kanji_gate, order=40)
 
     def _on_sync_start() -> None:
         run_kanji_gate(reason="sync")

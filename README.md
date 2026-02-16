@@ -236,6 +236,7 @@ In Anki you have an AJpC menu with:
 * **Run -> Run Example Unlocker**
 * **Run -> Run Kanji Unlocker**
 * **Run -> Run Card Sorter**
+* Top toolbar includes a **Restart** icon (`⟳`) managed by the dedicated `restart` module.
 
 All settings are configured via the Add-on Settings UI:
 
@@ -262,6 +263,11 @@ For AJpC Tools Graph, the graph API now exposes provider-resolved link edges:
 
 This avoids duplicating provider/config parsing in the companion graph add-on when rule structures change.
 
+Editor fallback APIs were removed from the graph bridge surface:
+
+- `_ajpc_note_editor_api` is no longer published.
+- `_ajpc_graph_api` no longer includes editor-open helper functions.
+
 ---
 
 ## Configuration Architecture
@@ -272,6 +278,9 @@ The add-on uses a split config architecture:
 - `config_migrations.py` owns schema/key migrations for `config.json`.
 - Fixed architecture components live in `core/*.py` (`general`, `info`, `debug`) and are not part of dynamic module discovery.
 - Feature modules in `modules/*.py` own their own runtime config proxies and module-specific keys.
+- Link-Core-owned helpers live in `modules/_link_core/*` and are initialized through `modules/link_core.py`.
+- Deck progress widgets use a neutral provider registry (`modules/_widgets/deck_stats_registry.py`) so gate modules register stats without direct cross-imports.
+- Family module namespace is hard-cut to `family_priority.*` (legacy `family_gate.*` keys are not read).
 
 This keeps modules plug-and-play and avoids cross-module coupling through a central config singleton.
 
@@ -310,7 +319,7 @@ Those add-ons inspired some of the functionallity of this add-on. Due to unwante
 
 - [Kanji Unlock Addon](https://ankiweb.net/shared/info/953200781) - Technically, nothing in this add-on is based on it, nor did I get the idea for the “Kanji Unlocker” from it. I discovered it after my first working prototype, but due to the similarity, I didn’t want to exclude it from this list.
 - [Automatically Sort Cards Into Decks (Card Sorter)](https://ankiweb.net/shared/info/1310787152) - The "Card Sorter" feature is based on this add-on. It's a rework of the original that didn't work properly because of deprecated code and edge-case issues.
-- [🔂AnkiRestart - Quick Anki Rebooter, for Customize & Develop (Created by Shigeඞ)](https://ankiweb.net/shared/info/237169833) - The restart feature under "Debug" is inspired by shigeඞs method of restarting Anki. Due to it being to fast with no config option for delay, often it tried to restart while Anki wasn't closed yet. (Mainly used for debugging, where i had to restart anki multiple times in short succession)
+- [🔂AnkiRestart - Quick Anki Rebooter, for Customize & Develop (Created by Shigeඞ)](https://ankiweb.net/shared/info/237169833) - The restart workflow is inspired by shigeඞs restart strategy and is now implemented as a dedicated `restart` module with helper-based delayed relaunch.
 
 ---
 

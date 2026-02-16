@@ -31,6 +31,7 @@ from aqt.utils import tooltip
 
 from .. import logging as core_logging
 from . import ModuleSpec
+from ._widgets.deck_stats_registry import count_unsuspended_cards, register_provider
 
 ADDON_DIR = os.path.dirname(os.path.dirname(__file__))
 CONFIG_PATH = os.path.join(ADDON_DIR, "config.json")
@@ -108,9 +109,7 @@ def reload_config() -> None:
 
     CARD_STAGES_ENABLED = bool(cfg_get("card_stages.enabled", True))
     CARD_STAGES_RUN_ON_SYNC = bool(cfg_get("card_stages.run_on_sync", True))
-    CARD_STAGES_NOTE_TYPES = (
-        cfg_get("card_stages.note_types", cfg_get("family_gate.note_types", {})) or {}
-    )
+    CARD_STAGES_NOTE_TYPES = cfg_get("card_stages.note_types", {}) or {}
 
     try:
         from aqt import mw as _mw  # type: ignore
@@ -550,12 +549,40 @@ def note_ids_for_note_types(col: Collection, note_types: list[Any]) -> list[int]
     return nids
 
 
-DEFAULT_STICKY_TAG_BASE = "_intern::family_gate::unlocked"
-DEFAULT_STAGE_TAG_PREFIX = "_intern::family_gate::unlocked::stage"
+DEFAULT_STICKY_TAG_BASE = "_intern::family_priority::unlocked"
+DEFAULT_STAGE_TAG_PREFIX = "_intern::family_priority::unlocked::stage"
 
 
 def stage_tag(stage_index: int) -> str:
     return f"{DEFAULT_STAGE_TAG_PREFIX}{stage_index}"
+
+
+def _deck_stats_provider_card_stages() -> dict[str, Any]:
+    reload_config()
+    enabled = bool(CARD_STAGES_ENABLED)
+    tracked: set[int] = set()
+    if enabled and mw is not None and getattr(mw, "col", None):
+        note_types = list((CARD_STAGES_NOTE_TYPES or {}).keys())
+        nids = note_ids_for_note_types(mw.col, note_types)
+        for nid in nids:
+            try:
+                note = mw.col.get_note(int(nid))
+            except Exception:
+                continue
+            stages = get_stage_cfg_for_note_type(int(note.mid))
+            wanted = {str(t) for st in stages for t in (st.templates or [])}
+            if not wanted:
+                continue
+            for card in note.cards():
+                if str(card.ord) in wanted:
+                    tracked.add(int(card.id))
+    return {
+        "label": "Card Stages completed",
+        "enabled": enabled,
+        "tracked": len(tracked),
+        "free": count_unsuspended_cards(tracked),
+        "order": 10,
+    }
 
 
 def card_stages_apply(col: Collection, ui_set, counters: dict[str, int]) -> None:
@@ -572,13 +599,13 @@ def card_stages_apply(col: Collection, ui_set, counters: dict[str, int]) -> None
 
     gate_map = None
     try:
-        from . import family_gate as _family_gate  # type: ignore
+        from . import family_priority as _family_priority  # type: ignore
     except Exception:
-        _family_gate = None  # type: ignore
+        _family_priority = None  # type: ignore
 
-    if _family_gate is not None:
+    if _family_priority is not None and bool(getattr(_family_priority.config, "FAMILY_PRIORITY_ENABLED", False)):
         try:
-            gate_map = _family_gate.compute_family_gate_open_map(col)
+            gate_map = _family_priority.compute_family_priority_open_map(col)
         except Exception:
             gate_map = None
 
@@ -935,6 +962,8 @@ def _enabled_card_stages() -> bool:
 
 def _init() -> None:
     from aqt import gui_hooks, mw
+
+    register_provider("card_stages", _deck_stats_provider_card_stages, order=10)
 
     def _on_sync_start() -> None:
         run_card_stages(reason="sync")

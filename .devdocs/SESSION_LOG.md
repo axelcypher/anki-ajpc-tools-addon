@@ -20,3 +20,7 @@
 [2026-02-16 19:32:30] Codex: AGENTS catch-up - added missing .devdocs documentation files, updated CHANGELOG, and removed UTF-8 BOM from config.py/config_migrations.py.
 [2026-02-16 19:33:00] Codex: AGENTS compliance follow-up - unignored and versioned required .devdocs files, updated README/CHANGELOG, and reran config smoke checks.
 [2026-02-16 19:36:01] Codex: Promoted `debug/general/info` from dynamic `modules/` to fixed `core/` components, rewired bootstrap/settings tab build order, and updated architecture/reference/logging/style docs + changelog.
+[2026-02-16 20:52:51] Codex: Stage-1 refactor continued: moved Link-Core helper ownership to `modules/_link_core/*`, removed dynamic `modules/browser_graph.py`, and wired browser-graph helper init through `modules/link_core.py`.
+[2026-02-16 20:52:51] Codex: Applied hardcut rename `family_gate` -> `family_priority` (module id, provider id, config namespace), corrected Family/Card-Stages coupling checks, and updated labels/status strings.
+[2026-02-16 20:52:51] Codex: Extracted restart runtime from `core/debug.py` into `modules/restart.py`, removed `debug.show_restart_button`, removed `api/note_editor_api.py`, and removed editor fallback keys from `_ajpc_graph_api`.
+[2026-02-16 20:52:51] Codex: Updated Stage-1 docs (`README`, `CHANGELOG`, `.devdocs/ARCHITECTURE_GUIDE.md`, `.devdocs/REFERENCE.md`, `.devdocs/STYLING_GUIDE.md`, `.devdocs/logging.md`) and cleaned tracked `restart_helper/build/*` artifacts.

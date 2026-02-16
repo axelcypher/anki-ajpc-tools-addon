@@ -13,8 +13,9 @@ from aqt.qt import QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QSpinBox, QVB
 from aqt.utils import tooltip
 
 from . import ModuleSpec
-from ._link_renderer import convert_links, existing_link_targets
-from ._note_editor import open_note_editor
+from ._link_core.browser_graph import install_browser_graph
+from ._link_core.note_editor import open_note_editor
+from ._link_core.renderer import convert_links, existing_link_targets
 
 ADDON_DIR = os.path.dirname(os.path.dirname(__file__))
 CONFIG_PATH = os.path.join(ADDON_DIR, "config.json")
@@ -726,6 +727,7 @@ def _build_settings(ctx):
 def _init() -> None:
     _reload_config()
     install_link_core()
+    install_browser_graph()
 
 
 MODULE = ModuleSpec(

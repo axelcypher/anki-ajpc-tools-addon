@@ -11,7 +11,6 @@ CONFIG_PATH = os.path.join(ADDON_DIR, "config.json")
 CFG: dict[str, Any] = {}
 DEBUG = False
 DEBUG_VERIFY_SUSPENSION = False
-DEBUG_SHOW_RESTART_BUTTON = False
 DEBUG_LEVEL = "debug"
 DEBUG_MODULE_LOGS: dict[str, bool] = {}
 DEBUG_MODULE_LEVELS: dict[str, str] = {}
@@ -53,7 +52,7 @@ def _cfg_set(cfg: dict[str, Any], path: str, value: Any) -> None:
 
 
 def reload_config() -> None:
-    global CFG, DEBUG, DEBUG_VERIFY_SUSPENSION, DEBUG_SHOW_RESTART_BUTTON
+    global CFG, DEBUG, DEBUG_VERIFY_SUSPENSION
     global DEBUG_LEVEL, DEBUG_MODULE_LOGS, DEBUG_MODULE_LEVELS
     global RUN_ON_SYNC, RUN_ON_UI
     global RESTORE_MAIN_WINDOW_GEOMETRY, GRAPH_PRELOAD_ON_STARTUP
@@ -67,7 +66,6 @@ def reload_config() -> None:
     if isinstance(_dbg, dict):
         DEBUG = bool(_dbg.get("enabled", False))
         DEBUG_VERIFY_SUSPENSION = bool(_dbg.get("verify_suspension", False))
-        DEBUG_SHOW_RESTART_BUTTON = bool(_dbg.get("show_restart_button", False))
         _lvl = str(_dbg.get("level", "debug")).strip().lower()
         DEBUG_LEVEL = _lvl if _lvl in level_allowed else "debug"
         _mlogs = _dbg.get("module_logs", {})
@@ -89,7 +87,6 @@ def reload_config() -> None:
     else:
         DEBUG = bool(_dbg)
         DEBUG_VERIFY_SUSPENSION = False
-        DEBUG_SHOW_RESTART_BUTTON = False
         DEBUG_LEVEL = "debug"
         DEBUG_MODULE_LOGS = {}
         DEBUG_MODULE_LEVELS = {}

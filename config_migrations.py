@@ -58,7 +58,7 @@ def migrate_legacy_keys() -> bool:
             cfg["mass_linker"] = mass_out
             changed = True
 
-    family = cfg.get("family_gate")
+    family = cfg.get("family_priority")
     card_stages = cfg.get("card_stages")
     card_stages_out: dict[str, Any] = dict(card_stages) if isinstance(card_stages, dict) else {}
 
@@ -101,7 +101,7 @@ def migrate_legacy_keys() -> bool:
                 changed = True
 
         if family_out != family:
-            cfg["family_gate"] = family_out
+            cfg["family_priority"] = family_out
             changed = True
 
     if not isinstance(cfg.get("card_stages"), dict) or cfg.get("card_stages") != card_stages_out:
@@ -281,7 +281,7 @@ def migrate_note_type_names_to_ids() -> bool:
             config._cfg_set(cfg, path, key)
             changed = True
 
-    _map_dict_keys_path("family_gate.note_types")
+    _map_dict_keys_path("family_priority.note_types")
     _map_dict_keys_path("card_stages.note_types")
     _map_dict_keys_path("kanji_gate.vocab_note_types")
     _map_dict_keys_path("card_sorter.note_types")

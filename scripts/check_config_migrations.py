@@ -122,7 +122,7 @@ def _test_non_anki_fallbacks(mig_mod) -> None:
 
 def _test_config_core_is_agnostic(config_mod) -> None:
     disallowed = [
-        "FAMILY_GATE_ENABLED",
+        "FAMILY_PRIORITY_ENABLED",
         "CARD_STAGES_ENABLED",
         "EXAMPLE_GATE_ENABLED",
         "KANJI_GATE_ENABLED",
