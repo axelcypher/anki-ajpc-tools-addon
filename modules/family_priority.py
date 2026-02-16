@@ -661,25 +661,33 @@ def _label_for_note(note, label_field: str) -> str:
 def _family_find_nids(field: str, fid: str) -> list[int]:
     if mw is None or not getattr(mw, "col", None):
         return []
-    if not field or not fid:
+    field_txt = str(field or "").strip()
+    fid_txt = unicodedata.normalize("NFC", str(fid or "").strip())
+    if not field_txt or not fid_txt:
         return []
-    cache_key = (id(mw.col), str(field), str(fid))
+    cache_key = (id(mw.col), field_txt, fid_txt)
     now = time.time()
     cached = FAMILY_LOOKUP_CACHE.get(cache_key)
     if cached is not None:
         ts, nids = cached
         if (now - ts) <= FAMILY_LOOKUP_TTL_SECONDS:
             return list(nids)
-    pattern = ".*" + re.escape(fid) + ".*"
-    q = f"{field}:re:{pattern}"
-    try:
-        nids = list(mw.col.find_notes(q))
-        FAMILY_LOOKUP_CACHE[cache_key] = (now, nids)
-        return nids
-    except Exception:
-        dbg("family link search failed", q)
-        log_warn("family link search failed", q)
-        return []
+    field_term = f'"{field_txt}"' if " " in field_txt else field_txt
+    pattern = ".*" + re.escape(fid_txt) + ".*"
+    quoted_pattern = pattern.replace('"', '\\"')
+    queries = [
+        f'{field_term}:re:"{quoted_pattern}"',
+        f"{field_term}:re:{pattern}",
+    ]
+    for q in queries:
+        try:
+            nids = list(mw.col.find_notes(q))
+            FAMILY_LOOKUP_CACHE[cache_key] = (now, nids)
+            return nids
+        except Exception:
+            dbg("family link search failed", q)
+            log_warn("family link search failed", q)
+    return []
 
 
 def _note_sort_field_value(note) -> str:

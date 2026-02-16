@@ -99,6 +99,8 @@ You attach a "priority number" to a FamilyID entry inside the FamilyID field:
 * **Priority 2** = unlocks only after all priority 1 notes are **Stage 0 ready**
   ...and so on.
 
+Family IDs can contain spaces (for example `kita guchi`) and are handled as normal IDs.
+
 If a note contains multiple family links, **all of them must be satisfied** before the note can unlock.
 
 ### Example: deguchi / kita / ~guchi / kita-guchi
