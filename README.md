@@ -264,6 +264,18 @@ This avoids duplicating provider/config parsing in the companion graph add-on wh
 
 ---
 
+## Configuration Architecture
+
+The add-on uses a split config architecture:
+
+- `config.py` is module-agnostic core infrastructure (load/save helpers, global runtime toggles, debug flags).
+- `config_migrations.py` owns schema/key migrations for `config.json`.
+- Feature modules in `modules/*.py` own their own runtime config proxies and module-specific keys.
+
+This keeps modules plug-and-play and avoids cross-module coupling through a central config singleton.
+
+---
+
 ## Development (Vendor Bootstrap)
 
 After cloning, install local vendor dependencies with:
