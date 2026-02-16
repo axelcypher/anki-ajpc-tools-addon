@@ -43,6 +43,7 @@
     "vocab_deck": "",
     "example_deck": "",
     "key_field": "Vocab",
+    "reading_field": "VocabReading",
     "example_stage_syntax": {
       "separator": "@",
       "default_stage": 0

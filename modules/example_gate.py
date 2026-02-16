@@ -54,6 +54,7 @@ VOCAB_DECK = ""
 EXAMPLE_DECK = ""
 VOCAB_KEY_FIELD = "Vocab"
 EXAMPLE_KEY_FIELD = "Vocab"
+EXAMPLE_READING_FIELD = "VocabReading"
 EX_STAGE_SEP = "@"
 EX_STAGE_DEFAULT = 0
 EX_APPLY_ALL_CARDS = True
@@ -100,7 +101,7 @@ def reload_config() -> None:
     global STABILITY_DEFAULT_THRESHOLD, STABILITY_AGG
     global WATCH_NIDS
     global EXAMPLE_GATE_ENABLED, EXAMPLE_GATE_RUN_ON_SYNC, VOCAB_DECK, EXAMPLE_DECK
-    global VOCAB_KEY_FIELD, EXAMPLE_KEY_FIELD, EX_STAGE_SEP, EX_STAGE_DEFAULT, EX_APPLY_ALL_CARDS
+    global VOCAB_KEY_FIELD, EXAMPLE_KEY_FIELD, EXAMPLE_READING_FIELD, EX_STAGE_SEP, EX_STAGE_DEFAULT, EX_APPLY_ALL_CARDS
     global EXAMPLE_THRESHOLD
     global KEY_STRIP_HTML, KEY_TRIM, KEY_NFC, KEY_FIRST_TOKEN, KEY_STRIP_FURIGANA_BR
 
@@ -142,6 +143,8 @@ def reload_config() -> None:
         _key_field = "Vocab"
     VOCAB_KEY_FIELD = _key_field
     EXAMPLE_KEY_FIELD = _key_field
+    _reading_field = str(cfg_get("example_gate.reading_field", "VocabReading")).strip()
+    EXAMPLE_READING_FIELD = _reading_field or "VocabReading"
     EX_STAGE_SEP = str(cfg_get("example_gate.example_stage_syntax.separator", "@"))
     EX_STAGE_DEFAULT = int(cfg_get("example_gate.example_stage_syntax.default_stage", 0))
     EX_APPLY_ALL_CARDS = bool(
@@ -282,6 +285,7 @@ def _norm_reading_key(s: str) -> str:
 
 def _extract_vocab_reading_key(note, key_src: str) -> str:
     candidates = [
+        str(config.EXAMPLE_READING_FIELD or "").strip(),
         "VocabReading",
         f"{config.VOCAB_KEY_FIELD}Reading" if config.VOCAB_KEY_FIELD else "",
         "Reading",
@@ -589,6 +593,77 @@ def _fugashi_tagger():
     return _FUGASHI_TAGGER
 
 
+def _feature_pos_blob(feat: Any) -> str:
+    if feat is None:
+        return ""
+    vals = [
+        getattr(feat, "pos1", None),
+        getattr(feat, "pos2", None),
+        getattr(feat, "pos3", None),
+        getattr(feat, "pos4", None),
+        getattr(feat, "pos", None),
+        getattr(feat, "part_of_speech", None),
+    ]
+    return " ".join(str(v or "") for v in vals if str(v or "").strip()).lower()
+
+
+def _feature_ctype_blob(feat: Any) -> str:
+    if feat is None:
+        return ""
+    return str(getattr(feat, "cType", None) or getattr(feat, "ctype", None) or "").lower()
+
+
+def _token_is_verb_or_adj(tok: Any) -> bool:
+    feat = getattr(tok, "feature", None)
+    pos_blob = _feature_pos_blob(feat)
+    if any(mark in pos_blob for mark in ("\u52d5\u8a5e", "\u5f62\u5bb9\u8a5e", "\u5f62\u72b6\u8a5e", "verb", "adjective")):
+        return True
+    ctype_blob = _feature_ctype_blob(feat)
+    return any(
+        mark in ctype_blob
+        for mark in (
+            "\u4e94\u6bb5",
+            "\u4e0a\u4e00\u6bb5",
+            "\u4e0b\u4e00\u6bb5",
+            "\u30b5\u884c\u5909\u683c",
+            "\u30ab\u884c\u5909\u683c",
+            "godan",
+            "ichidan",
+            "suru",
+            "kuru",
+            "adj",
+        )
+    )
+
+
+def _token_lemma_norm(tok: Any) -> str:
+    feat = getattr(tok, "feature", None)
+    lemma = (
+        getattr(feat, "lemma", None)
+        or getattr(feat, "dictionary_form", None)
+        or getattr(feat, "base_form", None)
+        or str(getattr(tok, "surface", "") or "")
+    )
+    lemma = str(lemma or "").strip()
+    if not lemma or lemma == "*":
+        lemma = str(getattr(tok, "surface", "") or "").strip()
+    return norm_text(lemma)
+
+
+def _token_reading_norm(tok: Any) -> str:
+    feat = getattr(tok, "feature", None)
+    reading = (
+        getattr(feat, "kana", None)
+        or getattr(feat, "pron", None)
+        or getattr(feat, "reading", None)
+        or str(getattr(tok, "surface", "") or "")
+    )
+    reading = str(reading or "").strip()
+    if not reading or reading == "*":
+        reading = str(getattr(tok, "surface", "") or "").strip()
+    return _norm_reading_key(reading)
+
+
 def _lemma_from_surface(surface: str) -> tuple[str, str]:
     s = norm_text(surface or "")
     if not s:
@@ -600,20 +675,16 @@ def _lemma_from_surface(surface: str) -> tuple[str, str]:
         tokens = [t for t in tagger(s) if str(getattr(t, "surface", "") or "").strip()]
     except Exception:
         return s, "lemma_backend_failed"
-    if len(tokens) != 1:
+    tok = None
+    if len(tokens) == 1:
+        tok = tokens[0]
+    elif len(tokens) == 2 and _token_is_verb_or_adj(tokens[0]):
+        tok = tokens[0]
+    else:
         return s, "ambiguous_tokenization"
-    tok = tokens[0]
-    feat = getattr(tok, "feature", None)
-    lemma = (
-        getattr(feat, "lemma", None)
-        or getattr(feat, "dictionary_form", None)
-        or getattr(feat, "base_form", None)
-        or str(getattr(tok, "surface", "") or "")
-    )
-    lemma = str(lemma or "").strip()
-    if not lemma or lemma == "*":
-        lemma = str(getattr(tok, "surface", "") or "").strip()
-    lemma_norm = norm_text(lemma)
+    lemma_norm = _token_lemma_norm(tok)
+    if not lemma_norm:
+        return s, "ambiguous_tokenization"
     # Guard single-kanji examples from semantic lemma remaps (e.g., 歳 -> 年).
     if (
         len(s) == 1
@@ -637,20 +708,14 @@ def _reading_from_surface(surface: str) -> str:
         tokens = [t for t in tagger(s) if str(getattr(t, "surface", "") or "").strip()]
     except Exception:
         return _norm_reading_key(s)
-    if len(tokens) != 1:
+    tok = None
+    if len(tokens) == 1:
+        tok = tokens[0]
+    elif len(tokens) == 2 and _token_is_verb_or_adj(tokens[0]):
+        tok = tokens[0]
+    else:
         return ""
-    tok = tokens[0]
-    feat = getattr(tok, "feature", None)
-    reading = (
-        getattr(feat, "kana", None)
-        or getattr(feat, "pron", None)
-        or getattr(feat, "reading", None)
-        or str(getattr(tok, "surface", "") or "")
-    )
-    reading = str(reading or "").strip()
-    if not reading or reading == "*":
-        reading = str(getattr(tok, "surface", "") or "").strip()
-    return _norm_reading_key(reading)
+    return _token_reading_norm(tok)
 
 
 _SURU_SUFFIXES = (
@@ -1874,6 +1939,15 @@ def _build_settings(ctx):
         ),
         key_field_edit,
     )
+    reading_field_edit = QLineEdit()
+    reading_field_edit.setText(config.EXAMPLE_READING_FIELD)
+    example_form.addRow(
+        _tip_label(
+            "Reading fallback field",
+            "Field on vocab notes used for normalized reading fallback matching.",
+        ),
+        reading_field_edit,
+    )
 
     example_threshold_spin = QDoubleSpinBox()
     example_threshold_spin.setDecimals(2)
@@ -1989,6 +2063,7 @@ def _build_settings(ctx):
         config._cfg_set(cfg, "example_gate.vocab_deck", _combo_value(vocab_deck_combo))
         config._cfg_set(cfg, "example_gate.example_deck", _combo_value(example_deck_combo))
         config._cfg_set(cfg, "example_gate.key_field", key_field_edit.text().strip())
+        config._cfg_set(cfg, "example_gate.reading_field", reading_field_edit.text().strip())
         config._cfg_set(cfg, "example_gate.threshold", float(example_threshold_spin.value()))
 
     return _save

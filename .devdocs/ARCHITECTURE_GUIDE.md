@@ -42,6 +42,7 @@
   3. `Debug` (from `core/debug.py`, visible only when `debug.enabled`)
 - After fixed core tabs, dynamically discovered module tabs are appended.
 - `modules/example_gate.py` owns an inline Settings-side debug lookup UI (`Mapping debug`) for single-note mapping diagnostics. It must stay module-local and reuse the same mapping pipeline as runtime apply logic.
+- `modules/example_gate.py` also owns the fallback source setting `example_gate.reading_field` (`Reading fallback field`) and must pass it through module-local save/load paths only.
 
 ## Menu Boundaries
 - `__init__.py` installs top-level settings items as:
@@ -72,5 +73,5 @@
 - Example Unlocker ambiguous-lemma path should attempt literal cloze-vs-key disambiguation (`key_literal`) before failing hard, to preserve furigana-distinguished homographs.
 - Example Unlocker must normalize parser-required whitespace before kanji/`[` consistently in both cloze and vocab-key normalization paths before applying token/lemma matching.
 - Example Unlocker honorific handling must be narrow: treat only honorific-equivalent lemma/cloze pairs (`御X` <-> `おX`/`ごX`) as equivalent, then run cloze-key lookup with literal disambiguation before surface fallback.
-- Example Unlocker fallback stage must include normalized reading matching (`VocabReading` -> hira) and only accept reading candidates that satisfy key/literal constraints; unresolved reading fan-out should fail as `ambiguous_reading:<reading>`.
+- Example Unlocker fallback stage must include normalized reading matching (`example_gate.reading_field`, default `VocabReading`, normalized to hira) and only accept reading candidates that satisfy key/literal constraints; unresolved reading fan-out should fail as `ambiguous_reading:<reading>`.
 - Example Unlocker ambiguous-tokenization handling for `suru` verb forms must stay strict: derive `...する` key from the cloze surface and only allow fallback matches on entries explicitly marked as `suru` verbs.
