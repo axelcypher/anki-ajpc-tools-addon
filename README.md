@@ -170,6 +170,9 @@ lookup (with literal disambiguation) before `no_vocab_match`.
 If lemma/canonicalization still does not resolve safely, the resolver performs
 an additional fallback via normalized reading (`VocabReading`-based index) and
 only accepts candidates that also pass key/literal constraints.
+For `suru` verb forms that tokenize ambiguously (for example `残業します`),
+the resolver adds a strict `...する` fallback and only accepts candidates that
+are explicitly typed as `suru` verbs in runtime form metadata.
 
 ### Mapping debug lookup (Settings)
 

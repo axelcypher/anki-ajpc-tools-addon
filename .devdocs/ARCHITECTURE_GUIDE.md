@@ -73,3 +73,4 @@
 - Example Unlocker must normalize parser-required whitespace before kanji/`[` consistently in both cloze and vocab-key normalization paths before applying token/lemma matching.
 - Example Unlocker honorific handling must be narrow: treat only honorific-equivalent lemma/cloze pairs (`御X` <-> `おX`/`ごX`) as equivalent, then run cloze-key lookup with literal disambiguation before surface fallback.
 - Example Unlocker fallback stage must include normalized reading matching (`VocabReading` -> hira) and only accept reading candidates that satisfy key/literal constraints; unresolved reading fan-out should fail as `ambiguous_reading:<reading>`.
+- Example Unlocker ambiguous-tokenization handling for `suru` verb forms must stay strict: derive `...する` key from the cloze surface and only allow fallback matches on entries explicitly marked as `suru` verbs.

@@ -39,6 +39,7 @@ This file lists only module functions that call logging paths, and which level t
   - Cloze/vocab match normalization now strips parser-required whitespace before kanji/`[` prior to matching.
   - Honorific-equivalent reconciliation may emit reason suffix `:honorific_equiv` (and `:honorific_equiv:literal` after literal cloze-key disambiguation).
   - Reading fallback may emit reason suffix `reading_fallback` / `reading_fallback:literal` / `reading_fallback:resolvable`; unresolved reading fan-out emits `ambiguous_reading:<reading>`.
+  - Suru-verb fallback may emit reason suffix `suru_fallback`; unresolved suru fan-out emits `ambiguous_suru:<key>`.
 - `_build_settings` -> `INFO`
   - Emits `Example Unlocker mapping lookup` with `nid`, `ok`, `lemma`, `reason`, `target_cids`, `error`, and `elapsed_ms`.
 - `run_example_gate` -> `TRACE`, `INFO`, `WARN`, `ERROR`

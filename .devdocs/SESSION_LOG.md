@@ -38,3 +38,4 @@
 [2026-02-16 23:04:37] Codex: Re-applied the same honorific-equivalence fix after an encoding-side regression, ensured `modules/example_gate.py` only contains the intended logic diff, and kept docs aligned with active behavior.
 [2026-02-16 23:09:08] Codex: Added AGENTS guardrail for mojibake-safe file writes (apply_patch-only for source edits, no shell redirects/Set-Content/Out-File/git-show redirects) and synced AGENTS content with graph companion.
 [2026-02-16 23:23:43] Codex: Added Example Unlocker reading-based fallback in `modules/example_gate.py` (normalized `VocabReading` index + key/literal guard + resolvable-target selection), wired it into diagnose/apply paths, and updated docs/logging references.
+[2026-02-16 23:33:13] Codex: Added strict `suru`-verb fallback in `modules/example_gate.py` for ambiguous-tokenization clozes (derive `...する`, match only `is_suru_verb` entries), updated diagnose/apply paths, and synced docs/logging references.

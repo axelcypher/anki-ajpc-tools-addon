@@ -653,6 +653,36 @@ def _reading_from_surface(surface: str) -> str:
     return _norm_reading_key(reading)
 
 
+_SURU_SUFFIXES = (
+    "しませんでした",
+    "しています",
+    "していました",
+    "しました",
+    "しません",
+    "します",
+    "しなかった",
+    "しない",
+    "して",
+    "した",
+    "しよう",
+    "しろ",
+)
+
+
+def _derive_suru_lookup_key(surface: str) -> str:
+    s = norm_text(surface or "")
+    if not s:
+        return ""
+    if s.endswith("する"):
+        return s
+    for suf in _SURU_SUFFIXES:
+        if s.endswith(suf) and len(s) > len(suf):
+            stem = s[: -len(suf)]
+            if stem:
+                return f"{stem}する"
+    return ""
+
+
 def _template_ord_form_markers(mid: int) -> dict[int, str | None]:
     cached = _MODEL_FORM_MARKER_CACHE.get(mid)
     if cached is not None:
@@ -955,6 +985,7 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
             lemma_map = _template_ord_lemma_markers(nt_id)
             candidate_cids: list[int] = []
             lemma_cids: list[int] = []
+            is_suru_verb = False
             for card in note.cards():
                 if lemma_map.get(int(card.ord), False):
                     lemma_cids.append(int(card.id))
@@ -965,6 +996,8 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
                 if not runtime:
                     continue
                 reading, ctype = runtime
+                if str(ctype or "").strip().lower() == "suru":
+                    is_suru_verb = True
                 surface = norm_text(_surface_from_marker(marker, reading, ctype))
                 if not surface:
                     continue
@@ -977,6 +1010,7 @@ def _build_vocab_mapping_indices(col: Collection, *, ui_set=None) -> tuple[
                 key=key,
                 key_literal=key_literal,
                 reading_key=reading_key,
+                is_suru_verb=is_suru_verb,
                 note_type_id=nt_id,
                 candidate_cids=sorted(set(candidate_cids)),
                 lemma_cids=sorted(set(lemma_cids)),
@@ -1029,6 +1063,25 @@ def _is_honorific_equivalent(a: str, b: str) -> bool:
     if (p1 == "\u5fa1" and p2 in ("\u304a", "\u3054")) or (p2 == "\u5fa1" and p1 in ("\u304a", "\u3054")):
         return True
     return False
+
+
+def _select_entry_by_suru_fallback(
+    *,
+    vocab_by_key: dict[str, list["VocabIndexEntry"]],
+    cloze_surface: str,
+    lemma_status: str,
+) -> tuple["VocabIndexEntry | None", str | None]:
+    if str(lemma_status or "") != "ambiguous_tokenization":
+        return None, None
+    suru_key = _derive_suru_lookup_key(cloze_surface)
+    if not suru_key:
+        return None, None
+    candidates = [cand for cand in vocab_by_key.get(suru_key, []) if bool(cand.is_suru_verb)]
+    if len(candidates) == 1:
+        return candidates[0], "suru_fallback"
+    if len(candidates) > 1:
+        return None, f"ambiguous_suru:{suru_key}"
+    return None, None
 
 
 def _select_entry_by_reading_fallback(
@@ -1185,6 +1238,20 @@ def _diagnose_example_mapping_by_nid(col: Collection, nid: int) -> dict[str, Any
                 out["related_nids"] = sorted(related_nids)
                 return out
         else:
+            suru_entry, suru_reason = _select_entry_by_suru_fallback(
+                vocab_by_key=vocab_by_key,
+                cloze_surface=cloze_surface,
+                lemma_status=lemma_status,
+            )
+            if suru_entry is not None:
+                entry = suru_entry
+                reason = str(suru_reason or "suru_fallback")
+                out["lookup_term"] = _derive_suru_lookup_key(cloze_surface) or cloze_surface
+            elif suru_reason:
+                out["error"] = suru_reason
+                out["related_nids"] = sorted(related_nids)
+                return out
+
             if _is_honorific_equivalent(lemma, cloze_surface):
                 by_cloze = vocab_by_key.get(cloze_surface, [])
                 if len(by_cloze) == 1:
@@ -1307,6 +1374,7 @@ class VocabIndexEntry:
     key: str
     key_literal: str
     reading_key: str
+    is_suru_verb: bool
     note_type_id: int
     candidate_cids: list[int]
     lemma_cids: list[int]
@@ -1401,6 +1469,18 @@ def example_gate_apply(col: Collection, ui_set, counters: dict[str, int]) -> Non
                         mapping_errors.append((int(nid), f"ambiguous_lemma:{lemma}"))
                         continue
                 else:
+                    suru_entry, suru_reason = _select_entry_by_suru_fallback(
+                        vocab_by_key=vocab_by_key,
+                        cloze_surface=cloze_surface,
+                        lemma_status=lemma_status,
+                    )
+                    if suru_entry is not None:
+                        entry = suru_entry
+                        reason = str(suru_reason or "suru_fallback")
+                    elif suru_reason:
+                        mapping_errors.append((int(nid), suru_reason))
+                        continue
+
                     if _is_honorific_equivalent(lemma, cloze_surface):
                         by_cloze = vocab_by_key.get(cloze_surface, [])
                         if len(by_cloze) == 1:
