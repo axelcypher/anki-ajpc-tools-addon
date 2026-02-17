@@ -20,6 +20,7 @@
 - Added Example Unlocker mapping-debug lookup in settings (`NID + Search`) with result popup showing detected lemma/lookup term and Browser filter action for related notes.
 
 ### Fixes
+- Removed host filter/search corner control from main settings dialog chrome by clearing `QTabWidget` corner widgets in `ui/settings.py`.
 - Removed UTF-8 BOM from `config.py` and `config_migrations.py` to comply with Anki config-loader guardrail.
 - Removed obsolete debug setting `debug.show_restart_button`.
 - Removed tracked restart build artifacts from version control and ignored `modules/restart_helper/build/`.

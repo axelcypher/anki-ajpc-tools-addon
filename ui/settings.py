@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from aqt import mw
-from aqt.qt import QDialog, QDialogButtonBox, QTabWidget, QVBoxLayout
+from aqt.qt import QDialog, QDialogButtonBox, QTabWidget, QVBoxLayout, Qt
 from aqt.utils import showInfo, show_info
 
 from .. import config, logging
@@ -38,6 +38,9 @@ def open_settings_dialog() -> None:
     dlg.resize(760, 640)
 
     tabs = QTabWidget(dlg)
+    # Ensure no corner search/filter widgets are shown in the host settings dialog.
+    tabs.setCornerWidget(None, Qt.Corner.TopLeftCorner)
+    tabs.setCornerWidget(None, Qt.Corner.TopRightCorner)
     ctx = SettingsContext(dlg=dlg, tabs=tabs, config=config)
     external_ctx = SettingsContext(dlg=dlg, tabs=tabs, config=config)
 

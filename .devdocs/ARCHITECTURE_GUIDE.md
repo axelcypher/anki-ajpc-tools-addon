@@ -40,6 +40,7 @@
   1. `General` (from `core/general.py`)
   2. `Info` (from `core/info.py`)
   3. `Debug` (from `core/debug.py`, visible only when `debug.enabled`)
+- `ui/settings.py` clears `QTabWidget` corner widgets (top-left/top-right) to keep dialog chrome free of host filter/search controls.
 - After fixed core tabs, dynamically discovered module tabs are appended.
 - `modules/example_gate.py` owns an inline Settings-side debug lookup UI (`Mapping debug`) for single-note mapping diagnostics. It must stay module-local and reuse the same mapping pipeline as runtime apply logic; visibility is gated by `config.DEBUG`.
 - `modules/example_gate.py` also owns the fallback source setting `example_gate.reading_field` (`Reading fallback field`) and must pass it through module-local save/load paths only.

@@ -295,6 +295,7 @@ All settings are configured via the Add-on Settings UI:
 
 * **Settings -> Main Settings**
 * Field explanations are available via **hover tooltips on labels**.
+* Host corner filter/search input is removed from the settings dialog chrome.
 * Link rendering in `link_core` is always handled directly by AJpC (`convert_links(...)`).
 * General tab includes **Preload graph on startup** (shown only when AJpC Tools Graph Companion is installed) to warm-load the graph window in background.
 * Browser Link-Core sidepanel context menus (list, mini-graph, dep-tree) include **Show in AJpC Graph** for direct handoff to the companion graph.

@@ -35,6 +35,8 @@
 - 2026-02-17 00:10:12: Mapping-debug UI row is now shown only when Debug mode is enabled, and popup output now includes reading-fallback diagnostics (field, terms, candidates, scope filtering, selected NID).
 - 2026-02-17 00:19:28: Example Unlocker normalization now strips leading suffix-prefix markers (`~`, `〜`, `～`) from key/reading matching inputs (including literal/key normalization paths).
 
+- 2026-02-17 12:27:28: Main settings dialog now clears `QTabWidget` corner widgets, removing the host filter/search input from the settings window header area.
+
 ## Debug Clarification Status
 - 2026-02-16 19:34:30: No open debug investigation in this change set.
 - Debug UI/runtime is now a fixed core component (`core/debug.py`), not a pluggable module.
