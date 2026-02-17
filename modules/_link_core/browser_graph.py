@@ -1018,33 +1018,96 @@ def _inject_editor_toggle_buttons(buttons: list[str], editor: Editor) -> None:
                 return
         except Exception:
             return
-    list_btn = editor.addButton(
-        icon=None,
-        cmd="_ajpc_browser_graph_toggle",
-        func=_toggle_browser_graph_panel,
-        tip="Toggle Link Lists",
-        label="List",
-        disables=False,
+    specs = (
+        ("_ajpc_browser_graph_toggle", _toggle_browser_graph_panel, "Toggle Link Lists", "List", "ajpc_browser_graph_btn_list"),
+        ("_ajpc_browser_graph_toggle_graph", _toggle_browser_graph_canvas, "Toggle Force Graph", "Graph", "ajpc_browser_graph_btn_graph"),
+        ("_ajpc_browser_graph_toggle_prio", _toggle_browser_graph_prio, "Toggle Dependency Tree", "Deps", "ajpc_browser_graph_btn_deps"),
     )
-    graph_btn = editor.addButton(
-        icon=None,
-        cmd="_ajpc_browser_graph_toggle_graph",
-        func=_toggle_browser_graph_canvas,
-        tip="Toggle Force Graph",
-        label="Graph",
-        disables=False,
-    )
-    prio_btn = editor.addButton(
-        icon=None,
-        cmd="_ajpc_browser_graph_toggle_prio",
-        func=_toggle_browser_graph_prio,
-        tip="Toggle Dependency Tree",
-        label="Deps",
-        disables=False,
-    )
-    buttons.append(list_btn)
-    buttons.append(graph_btn)
-    buttons.append(prio_btn)
+    created: list[str] = []
+    for cmd, fn, tip, label, btn_id in specs:
+        created.append(
+            editor.addButton(
+                icon=None,
+                cmd=cmd,
+                func=fn,
+                tip=tip,
+                label=label,
+                id=btn_id,
+                disables=False,
+            )
+        )
+    group_html = '<span class="ajpc-linkcore-editor-group">' + "".join(created) + "</span>"
+    buttons.append(group_html)
+
+
+def _inject_editor_toggle_group_style(web_content, context) -> None:
+    if not isinstance(context, Editor):
+        return
+    web_content.head += """
+<style>
+:root {
+  --ajpc-linkcore-icon-size: 14px;
+  --ajpc-linkcore-icon-color: currentColor;
+  --ajpc-linkcore-icon-list-mask: url(data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+DQo8IS0tIFVwbG9hZGVkIHRvOiBTVkcgUmVwbywgd3d3LnN2Z3JlcG8uY29tLCBHZW5lcmF0b3I6IFNWRyBSZXBvIE1peGVyIFRvb2xzIC0tPg0KPHN2ZyB3aWR0aD0iODAwcHgiIGhlaWdodD0iODAwcHgiIHZpZXdCb3g9IjAgLTAuNSAyMSAyMSIgdmVyc2lvbj0iMS4xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIj4NCiAgICANCiAgICA8dGl0bGU+bGlzdCBbIzE0MjJdPC90aXRsZT4NCiAgICA8ZGVzYz5DcmVhdGVkIHdpdGggU2tldGNoLjwvZGVzYz4NCiAgICA8ZGVmcz4NCg0KPC9kZWZzPg0KICAgIDxnIGlkPSJQYWdlLTEiIHN0cm9rZT0ibm9uZSIgc3Ryb2tlLXdpZHRoPSIxIiBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPg0KICAgICAgICA8ZyBpZD0iRHJpYmJibGUtTGlnaHQtUHJldmlldyIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTM3OS4wMDAwMDAsIC02MDAuMDAwMDAwKSIgZmlsbD0iIzAwMDAwMCI+DQogICAgICAgICAgICA8ZyBpZD0iaWNvbnMiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2LjAwMDAwMCwgMTYwLjAwMDAwMCkiPg0KICAgICAgICAgICAgICAgIDxwYXRoIGQ9Ik0zMjYuMTUsNDQ0IEMzMjUuNTcwNCw0NDQgMzI1LjEsNDQzLjU1MiAzMjUuMSw0NDMgQzMyNS4xLDQ0Mi40NDggMzI1LjU3MDQsNDQyIDMyNi4xNSw0NDIgQzMyNi43Mjk2LDQ0MiAzMjcuMiw0NDIuNDQ4IDMyNy4yLDQ0MyBDMzI3LjIsNDQzLjU1MiAzMjYuNzI5Niw0NDQgMzI2LjE1LDQ0NCBNMzI3LjIsNDQwIEwzMjUuMSw0NDAgQzMyMy45Mzk3NSw0NDAgMzIzLDQ0MC44OTUgMzIzLDQ0MiBMMzIzLDQ0NCBDMzIzLDQ0NS4xMDUgMzIzLjkzOTc1LDQ0NiAzMjUuMSw0NDYgTDMyNy4yLDQ0NiBDMzI4LjM2MDI1LDQ0NiAzMjkuMyw0NDUuMTA1IDMyOS4zLDQ0NCBMMzI5LjMsNDQyIEMzMjkuMyw0NDAuODk1IDMyOC4zNjAyNSw0NDAgMzI3LjIsNDQwIE0zMjYuMTUsNDUxIEMzMjUuNTcwNCw0NTEgMzI1LjEsNDUwLjU1MiAzMjUuMSw0NTAgQzMyNS4xLDQ0OS40NDggMzI1LjU3MDQsNDQ5IDMyNi4xNSw0NDkgQzMyNi43Mjk2LDQ0OSAzMjcuMiw0NDkuNDQ4IDMyNy4yLDQ1MCBDMzI3LjIsNDUwLjU1MiAzMjYuNzI5Niw0NTEgMzI2LjE1LDQ1MSBNMzI3LjIsNDQ3IEwzMjUuMSw0NDcgQzMyMy45Mzk3NSw0NDcgMzIzLDQ0Ny44OTUgMzIzLDQ0OSBMMzIzLDQ1MSBDMzIzLDQ1Mi4xMDUgMzIzLjkzOTc1LDQ1MyAzMjUuMSw0NTMgTDMyNy4yLDQ1MyBDMzI4LjM2MDI1LDQ1MyAzMjkuMyw0NTIuMTA1IDMyOS4zLDQ1MSBMMzI5LjMsNDQ5IEMzMjkuMyw0NDcuODk1IDMyOC4zNjAyNSw0NDcgMzI3LjIsNDQ3IE0zMjYuMTUsNDU4IEMzMjUuNTcwNCw0NTggMzI1LjEsNDU3LjU1MiAzMjUuMSw0NTcgQzMyNS4xLDQ1Ni40NDggMzI1LjU3MDQsNDU2IDMyNi4xNSw0NTYgQzMyNi43Mjk2LDQ1NiAzMjcuMiw0NTYuNDQ4IDMyNy4yLDQ1NyBDMzI3LjIsNDU3LjU1MiAzMjYuNzI5Niw0NTggMzI2LjE1LDQ1OCBNMzI3LjIsNDU0IEwzMjUuMSw0NTQgQzMyMy45Mzk3NSw0NTQgMzIzLDQ1NC44OTUgMzIzLDQ1NiBMMzIzLDQ1OCBDMzIzLDQ1OS4xMDUgMzIzLjkzOTc1LDQ2MCAzMjUuMSw0NjAgTDMyNy4yLDQ2MCBDMzI4LjM2MDI1LDQ2MCAzMjkuMyw0NTkuMTA1IDMyOS4zLDQ1OCBMMzI5LjMsNDU2IEMzMjkuMyw0NTQuODk1IDMyOC4zNjAyNSw0NTQgMzI3LjIsNDU0IE0zNDAuODUsNDUxIEwzMzQuNTUsNDUxIEMzMzMuOTcwNCw0NTEgMzMzLjUsNDUwLjU1MiAzMzMuNSw0NTAgQzMzMy41LDQ0OS40NDggMzMzLjk3MDQsNDQ5IDMzNC41NSw0NDkgTDM0MC44NSw0NDkgQzM0MS40Mjk2LDQ0OSAzNDEuOSw0NDkuNDQ4IDM0MS45LDQ1MCBDMzQxLjksNDUwLjU1MiAzNDEuNDI5Niw0NTEgMzQwLjg1LDQ1MSBNMzQxLjksNDQ3IEwzMzMuNSw0NDcgQzMzMi4zMzk3NSw0NDcgMzMxLjQsNDQ3Ljg5NSAzMzEuNCw0NDkgTDMzMS40LDQ1MSBDMzMxLjQsNDUyLjEwNSAzMzIuMzM5NzUsNDUzIDMzMy41LDQ1MyBMMzQxLjksNDUzIEMzNDMuMDYwMjUsNDUzIDM0NCw0NTIuMTA1IDM0NCw0NTEgTDM0NCw0NDkgQzM0NCw0NDcuODk1IDM0My4wNjAyNSw0NDcgMzQxLjksNDQ3IE0zNDAuODUsNDQ0IEwzMzQuNTUsNDQ0IEMzMzMuOTcwNCw0NDQgMzMzLjUsNDQzLjU1MiAzMzMuNSw0NDMgQzMzMy41LDQ0Mi40NDggMzMzLjk3MDQsNDQyIDMzNC41NSw0NDIgTDM0MC44NSw0NDIgQzM0MS40Mjk2LDQ0MiAzNDEuOSw0NDIuNDQ4IDM0MS45LDQ0MyBDMzQxLjksNDQzLjU1MiAzNDEuNDI5Niw0NDQgMzQwLjg1LDQ0NCBNMzQxLjksNDQwIEwzMzMuNSw0NDAgQzMzMi4zMzk3NSw0NDAgMzMxLjQsNDQwLjg5NSAzMzEuNCw0NDIgTDMzMS40LDQ0NCBDMzMxLjQsNDQ1LjEwNSAzMzIuMzM5NzUsNDQ2IDMzMy41LDQ0NiBMMzQxLjksNDQ2IEMzNDMuMDYwMjUsNDQ2IDM0NCw0NDUuMTA1IDM0NCw0NDQgTDM0NCw0NDIgQzM0NCw0NDAuODk1IDM0My4wNjAyNSw0NDAgMzQxLjksNDQwIE0zNDAuODUsNDU4IEwzMzQuNTUsNDU4IEMzMzMuOTcwNCw0NTggMzMzLjUsNDU3LjU1MiAzMzMuNSw0NTcgQzMzMy41LDQ1Ni40NDggMzMzLjk3MDQsNDU2IDMzNC41NSw0NTYgTDM0MC44NSw0NTYgQzM0MS40Mjk2LDQ1NiAzNDEuOSw0NTYuNDQ4IDM0MS45LDQ1NyBDMzQxLjksNDU3LjU1MiAzNDEuNDI5Niw0NTggMzQwLjg1LDQ1OCBNMzQxLjksNDU0IEwzMzMuNSw0NTQgQzMzMi4zMzk3NSw0NTQgMzMxLjQsNDU0Ljg5NSAzMzEuNCw0NTYgTDMzMS40LDQ1OCBDMzMxLjQsNDU5LjEwNSAzMzIuMzM5NzUsNDYwIDMzMy41LDQ2MCBMMzQxLjksNDYwIEMzNDMuMDYwMjUsNDYwIDM0NCw0NTkuMTA1IDM0NCw0NTggTDM0NCw0NTYgQzM0NCw0NTQuODk1IDM0My4wNjAyNSw0NTQgMzQxLjksNDU0IiBpZD0ibGlzdC1bIzE0MjJdIj4NCg0KPC9wYXRoPg0KICAgICAgICAgICAgPC9nPg0KICAgICAgICA8L2c+DQogICAgPC9nPg0KPC9zdmc+);
+  --ajpc-linkcore-icon-graph-mask: url(data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+DQo8IS0tIFVwbG9hZGVkIHRvOiBTVkcgUmVwbywgd3d3LnN2Z3JlcG8uY29tLCBHZW5lcmF0b3I6IFNWRyBSZXBvIE1peGVyIFRvb2xzIC0tPg0KPHN2ZyB3aWR0aD0iODAwcHgiIGhlaWdodD0iODAwcHgiIHZpZXdCb3g9IjAgMCAyMCAyMCIgdmVyc2lvbj0iMS4xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIj4NCiAgICANCiAgICA8dGl0bGU+Y29ubmVjdGlvbl9wYXR0ZXJuIFsjMTEwNV08L3RpdGxlPg0KICAgIDxkZXNjPkNyZWF0ZWQgd2l0aCBTa2V0Y2guPC9kZXNjPg0KICAgIDxkZWZzPg0KDQo8L2RlZnM+DQogICAgPGcgaWQ9IlBhZ2UtMSIgc3Ryb2tlPSJub25lIiBzdHJva2Utd2lkdGg9IjEiIGZpbGw9Im5vbmUiIGZpbGwtcnVsZT0iZXZlbm9kZCI+DQogICAgICAgIDxnIGlkPSJEcmliYmJsZS1MaWdodC1QcmV2aWV3IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtMTgwLjAwMDAwMCwgLTMzMTkuMDAwMDAwKSIgZmlsbD0iIzAwMDAwMCI+DQogICAgICAgICAgICA8ZyBpZD0iaWNvbnMiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2LjAwMDAwMCwgMTYwLjAwMDAwMCkiPg0KICAgICAgICAgICAgICAgIDxwYXRoIGQ9Ik0xNDEsMzE3NyBDMTQwLjQ0OSwzMTc3IDE0MCwzMTc2LjU1MSAxNDAsMzE3NiBDMTQwLDMxNzUuNDQ5IDE0MC40NDksMzE3NSAxNDEsMzE3NSBDMTQxLjU1MSwzMTc1IDE0MiwzMTc1LjQ0OSAxNDIsMzE3NiBDMTQyLDMxNzYuNTUxIDE0MS41NTEsMzE3NyAxNDEsMzE3NyBNMTMxLjI0NSwzMTcwLjM0MSBDMTI5LjY3MSwzMTY3LjcwNyAxMzIuNjcyLDMxNjQuNjUgMTM1LjM0MSwzMTY2LjI0NSBDMTM2LjI5NywzMTY2LjgxNyAxMzYuODEzLDMxNjcuODQgMTM2LjgxMywzMTY4LjgxMiBDMTM2LjgxMywzMTcxLjc4MiAxMzIuODI3LDMxNzIuOTg3IDEzMS4yNDUsMzE3MC4zNDEgTTEyNywzMTc3IEMxMjYuNDQ5LDMxNzcgMTI2LDMxNzYuNTUxIDEyNiwzMTc2IEMxMjYsMzE3NS40NDkgMTI2LjQ0OSwzMTc1IDEyNywzMTc1IEMxMjcuNTUxLDMxNzUgMTI4LDMxNzUuNDQ5IDEyOCwzMTc2IEMxMjgsMzE3Ni41NTEgMTI3LjU1MSwzMTc3IDEyNywzMTc3IE0xMjcsMzE2MyBDMTI2LjQ0OSwzMTYzIDEyNiwzMTYyLjU1MSAxMjYsMzE2MiBDMTI2LDMxNjEuNDQ5IDEyNi40NDksMzE2MSAxMjcsMzE2MSBDMTI3LjU1MSwzMTYxIDEyOCwzMTYxLjQ0OSAxMjgsMzE2MiBDMTI4LDMxNjIuNTUxIDEyNy41NTEsMzE2MyAxMjcsMzE2MyBNMTQxLDMxNjEgQzE0MS41NTEsMzE2MSAxNDIsMzE2MS40NDkgMTQyLDMxNjIgQzE0MiwzMTYyLjU1MSAxNDEuNTUxLDMxNjMgMTQxLDMxNjMgQzE0MC40NDksMzE2MyAxNDAsMzE2Mi41NTEgMTQwLDMxNjIgQzE0MCwzMTYxLjQ0OSAxNDAuNDQ5LDMxNjEgMTQxLDMxNjEgTTE0MSwzMTczIEMxNDAuNTM4LDMxNzMgMTQwLjEwNSwzMTczLjExMyAxMzkuNzE0LDMxNzMuMyBMMTM3Ljk4MSwzMTcxLjU2NyBDMTM4Ljk3MSwzMTcwLjA3MSAxMzkuMTUyLDMxNjguMDc2IDEzOC4xMTMsMzE2Ni4zMDEgTDEzOS43MTQsMzE2NC43IEMxNDAuMTA1LDMxNjQuODg3IDE0MC41MzgsMzE2NSAxNDEsMzE2NSBDMTQyLjY1NywzMTY1IDE0NCwzMTYzLjY1NyAxNDQsMzE2MiBDMTQ0LDMxNjAuMzQzIDE0Mi42NTcsMzE1OSAxNDEsMzE1OSBDMTM5LjM0MywzMTU5IDEzOCwzMTYwLjM0MyAxMzgsMzE2MiBDMTM4LDMxNjIuNDYyIDEzOC4xMTMsMzE2Mi44OTUgMTM4LjMsMzE2My4yODYgTDEzNi43NzksMzE2NC44MDcgQzEzNS4wMSwzMTYzLjQ5NSAxMzIuNzUzLDMxNjMuNTIyIDEzMS4wNTgsMzE2NC42NDQgTDEyOS43LDMxNjMuMjg2IEMxMjkuODg3LDMxNjIuODk1IDEzMCwzMTYyLjQ2MiAxMzAsMzE2MiBDMTMwLDMxNjAuMzQzIDEyOC42NTcsMzE1OSAxMjcsMzE1OSBDMTI1LjM0MywzMTU5IDEyNCwzMTYwLjM0MyAxMjQsMzE2MiBDMTI0LDMxNjMuNjU3IDEyNS4zNDMsMzE2NSAxMjcsMzE2NSBDMTI3LjQ2MiwzMTY1IDEyNy44OTUsMzE2NC44ODcgMTI4LjI4NiwzMTY0LjcgTDEyOS42NDQsMzE2Ni4wNTggQzEyOC41MjIsMzE2Ny43NTIgMTI4LjQ5NCwzMTcwLjAxIDEyOS44MDcsMzE3MS43NzkgTDEyOC4yODYsMzE3My4zIEMxMjcuODk1LDMxNzMuMTEzIDEyNy40NjIsMzE3MyAxMjcsMzE3MyBDMTI1LjM0MywzMTczIDEyNCwzMTc0LjM0MyAxMjQsMzE3NiBDMTI0LDMxNzcuNjU3IDEyNS4zNDMsMzE3OSAxMjcsMzE3OSBDMTI4LjY1NywzMTc5IDEzMCwzMTc3LjY1NyAxMzAsMzE3NiBDMTMwLDMxNzUuNTM4IDEyOS44ODcsMzE3NS4xMDUgMTI5LjcsMzE3NC43MTQgTDEzMS4zMDEsMzE3My4xMTMgQzEzMy4wNjksMzE3NC4xNDggMTM1LjA2NSwzMTczLjk3NSAxMzYuNTY3LDMxNzIuOTgxIEwxMzguMywzMTc0LjcxNCBDMTM4LjExMywzMTc1LjEwNSAxMzgsMzE3NS41MzggMTM4LDMxNzYgQzEzOCwzMTc3LjY1NyAxMzkuMzQzLDMxNzkgMTQxLDMxNzkgQzE0Mi42NTcsMzE3OSAxNDQsMzE3Ny42NTcgMTQ0LDMxNzYgQzE0NCwzMTc0LjM0MyAxNDIuNjU3LDMxNzMgMTQxLDMxNzMiIGlkPSJjb25uZWN0aW9uX3BhdHRlcm4tWyMxMTA1XSI+DQoNCjwvcGF0aD4NCiAgICAgICAgICAgIDwvZz4NCiAgICAgICAgPC9nPg0KICAgIDwvZz4NCjwvc3ZnPg==);
+  --ajpc-linkcore-icon-deps-mask: url(data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KDTwhLS0gVXBsb2FkZWQgdG86IFNWRyBSZXBvLCB3d3cuc3ZncmVwby5jb20sIEdlbmVyYXRvcjogU1ZHIFJlcG8gTWl4ZXIgVG9vbHMgLS0+Cjxzdmcgd2lkdGg9IjgwMHB4IiBoZWlnaHQ9IjgwMHB4IiB2aWV3Qm94PSIwIDAgNDggNDgiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+DQogIDx0aXRsZT50cmVlLXN0cnVjdHVyZTwvdGl0bGU+DQogIDxnIGlkPSJMYXllcl8yIiBkYXRhLW5hbWU9IkxheWVyIDIiPg0KICAgIDxnIGlkPSJpbnZpc2libGVfYm94IiBkYXRhLW5hbWU9ImludmlzaWJsZSBib3giPg0KICAgICAgPHJlY3Qgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4IiBmaWxsPSJub25lIi8+DQogICAgPC9nPg0KICAgIDxnIGlkPSJRM19pY29ucyIgZGF0YS1uYW1lPSJRMyBpY29ucyI+DQogICAgICA8cGF0aCBkPSJNMjYsMzBINDJhMiwyLDAsMCwwLDItMlYyMGEyLDIsMCwwLDAtMi0ySDI2YTIsMiwwLDAsMC0yLDJ2MkgxNlYxNGg2YTIsMiwwLDAsMCwyLTJWNGEyLDIsMCwwLDAtMi0ySDZBMiwyLDAsMCwwLDQsNHY4YTIsMiwwLDAsMCwyLDJoNlY0MGEyLDIsMCwwLDAsMiwySDI0djJhMiwyLDAsMCwwLDIsMkg0MmEyLDIsMCwwLDAsMi0yVjM2YTIsMiwwLDAsMC0yLTJIMjZhMiwyLDAsMCwwLTIsMnYySDE2VjI2aDh2MkEyLDIsMCwwLDAsMjYsMzBabTItOEg0MHY0SDI4Wk04LDZIMjB2NEg4Wk0yOCwzOEg0MHY0SDI4WiIvPg0KICAgIDwvZz4NCiAgPC9nPg0KPC9zdmc+);
+}
+.ajpc-linkcore-editor-group {
+  display: inline-flex;
+  vertical-align: middle;
+}
+.ajpc-linkcore-editor-group .anki-addon-button {
+  border-radius: 0 !important;
+  margin: 0 !important;
+}
+.ajpc-linkcore-editor-group .anki-addon-button:first-child {
+  border-top-left-radius: 4px !important;
+  border-bottom-left-radius: 4px !important;
+}
+.ajpc-linkcore-editor-group .anki-addon-button:last-child {
+  border-top-right-radius: 4px !important;
+  border-bottom-right-radius: 4px !important;
+}
+#ajpc_browser_graph_btn_list,
+#ajpc_browser_graph_btn_graph,
+#ajpc_browser_graph_btn_deps {
+  font-size: 0 !important;
+  line-height: 0 !important;
+  min-width: 28px;
+  width: 28px;
+  padding: 0 6px !important;
+  position: relative;
+}
+#ajpc_browser_graph_btn_list::before,
+#ajpc_browser_graph_btn_graph::before,
+#ajpc_browser_graph_btn_deps::before {
+  content: "";
+  display: block;
+  width: var(--ajpc-linkcore-icon-size);
+  height: var(--ajpc-linkcore-icon-size);
+  margin: 0 auto;
+  background-color: var(--ajpc-linkcore-icon-color);
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+}
+#ajpc_browser_graph_btn_list::before {
+  -webkit-mask-image: var(--ajpc-linkcore-icon-list-mask);
+  mask-image: var(--ajpc-linkcore-icon-list-mask);
+}
+#ajpc_browser_graph_btn_graph::before {
+  -webkit-mask-image: var(--ajpc-linkcore-icon-graph-mask);
+  mask-image: var(--ajpc-linkcore-icon-graph-mask);
+}
+#ajpc_browser_graph_btn_deps::before {
+  -webkit-mask-image: var(--ajpc-linkcore-icon-deps-mask);
+  mask-image: var(--ajpc-linkcore-icon-deps-mask);
+}
+</style>
+"""
 
 
 def _label_from_ref(ref: ParsedLink) -> str:
@@ -2094,4 +2157,5 @@ def install_browser_graph() -> None:
     gui_hooks.browser_did_change_row.append(_on_browser_did_change_row)
     gui_hooks.operation_did_execute.append(_on_operation_did_execute)
     gui_hooks.editor_did_init_buttons.append(_inject_editor_toggle_buttons)
+    gui_hooks.webview_will_set_content.append(_inject_editor_toggle_group_style)
     mw._ajpc_browser_graph_installed = True
